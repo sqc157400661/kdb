@@ -32,12 +32,12 @@ const (
 	// "true" allow creating public xvip
 	SvcAnnoKeyCreatePublicXvip = "mysql.kdb.com/xvip-create-public"
 	// xvip or pvl
-	SvcAnnoKeyProvisioner = "service.k8s.alipay.com/provisioner"
+	SvcAnnoKeyProvisioner = "service.k8s.kdb.com/provisioner"
 	// if value is true, the service is controller by PVLServiceController
 	SvcAnnoKeyForcePvlControl = "mysql.kdb.com/force-pvl-control"
 
 	// value is xvip ip
-	SvcAnnoKeyXvipPrecreation = "service.k8s.alipay.com/xvip-precreation"
+	SvcAnnoKeyXvipPrecreation = "service.k8s.kdb.com/xvip-precreation"
 	// xvip creation id
 	SvcAnnoKeyXvipCreationOrderId = "mysql.kdb.com/xvip-creation-id"
 	// pvl lb id
