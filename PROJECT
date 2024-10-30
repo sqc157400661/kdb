@@ -1,0 +1,15 @@
+domain: kdb.com
+layout:
+- go.kubebuilder.io/v3
+projectName: kdb
+repo: kdb.com
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kdb.com
+  group: pgcluster.kdb.com
+  kind: PostgresCluster
+  path: kdb/api/postgres/v1beta1
+  version: v1beta1

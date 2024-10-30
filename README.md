@@ -1,13 +1,29 @@
 # kdb
 
 #### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+kdb是基于云原生数据库敏捷解决方案，支持MySQL、PostgreSQL等数据库，并支持当前主流的部署架构方案。保护企业使用一整套的方案，方便快捷，易于使用。
 
 #### 软件架构
-软件架构说明
+架构总体分为2层：
+1. 控制面
+2. 数据面
 
+组件以及职责功能划分：
+1. kdb-admin 负责运维管控平台
+2. kdb是基于云原生实现的operator控制器，负责k8s集群内实例生命周期的管理
+3. kdb-sidecar
+    1. kdblet，是负责管控数据库的容器组件，如负责数据库初始化、主动搭建、主从切换等等
+    2. kdbmonitor，负责数据库的监控指标的采集
+4. KdbProxy，可选组件，是数据库层的proxy
+    1. proxysql
+    2. pgbouncer
+5. Prometheus和grafna 实现的监控报警
+
+MySQL支持的部署架构
+- [x] 主备方案（双向复制）
+- [x] 一主多从（限制最多3个从节点）
+- [ ] MGR架构部署
+- [ ] PXC架构部署
 
 #### 安装教程
 
