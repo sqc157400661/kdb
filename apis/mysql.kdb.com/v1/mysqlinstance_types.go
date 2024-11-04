@@ -35,6 +35,7 @@ type MySQLInstanceSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// InstanceSet is the pod of mysql instance
+	// +optional
 	InstanceSet shared.InstanceSetSpec `json:"instance"`
 
 	// Whether or not the PostgreSQL cluster should be stopped.
@@ -67,21 +68,13 @@ type MySQLInstanceStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="podIP",type=string,JSONPath=`.status.podInfo.podIP`
-// +kubebuilder:printcolumn:name="node",type=string,JSONPath=`.status.podInfo.nodeName`
-// +kubebuilder:printcolumn:name="hostIP",type=string,JSONPath=`.status.podInfo.hostIP`
-// +kubebuilder:printcolumn:name="podPhase",type=string,JSONPath=`.status.podInfo.podPhase`
-// +kubebuilder:printcolumn:name="pvcPhase",type=string,JSONPath=`.status.pvcPhase`
-// +kubebuilder:printcolumn:name="status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp"
 // MySQLInstance is the Schema for the mysqlinstances API
 type MySQLInstance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec MySQLInstanceSpec `json:"spec,omitempty"`
-
-	// +optional
+	Spec   MySQLInstanceSpec   `json:"spec,omitempty"`
 	Status MySQLInstanceStatus `json:"status,omitempty"`
 }
 

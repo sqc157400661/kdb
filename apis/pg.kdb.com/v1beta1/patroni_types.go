@@ -1,6 +1,8 @@
 package v1beta1
 
-import "github.com/sqc157400661/kdb/apis/shared"
+import (
+	"github.com/sqc157400661/kdb/apis/shared"
+)
 
 type PatroniSpec struct {
 	// Patroni dynamic configuration settings. Changes to this value will be

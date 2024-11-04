@@ -14,6 +14,7 @@ type PostgresInstanceSpec struct {
 	Backups Backups `json:"backups"`
 
 	// postgres instance
+	// +optional
 	InstanceSet shared.InstanceSetSpec `json:"instance"`
 
 	// +optional
@@ -67,7 +68,7 @@ type PostgresInstanceSpec struct {
 	// +listMapKey=name
 	// +optional
 	Users []PostgresUserSpec `json:"users,omitempty"`
-
+	// +optional
 	Config map[string]string `json:"config,omitempty"`
 }
 
@@ -132,10 +133,6 @@ type PostgresInstanceStatus struct {
 	// +optional
 	StartupInstanceSet string `json:"startupInstanceSet,omitempty"`
 
-	// Current state of the PostgreSQL user interface.
-	// +optional
-	UserInterface *PostgresUserInterfaceStatus `json:"userInterface,omitempty"`
-
 	// Current state of PostgreSQL cluster monitoring tool configuration
 	// +optional
 	Monitoring MonitoringStatus `json:"monitoring,omitempty"`
@@ -178,28 +175,6 @@ func (s *PostgresProxySpec) Default() {
 
 type PostgresProxyStatus struct {
 	PGBouncer PGBouncerPodStatus `json:"pgBouncer,omitempty"`
-}
-
-// UserInterfaceSpec is a union of the supported PostgreSQL user interfaces.
-type UserInterfaceSpec struct {
-
-	// Defines a pgAdmin user interface.
-	PGAdmin *PGAdminPodSpec `json:"pgAdmin"`
-}
-
-// Default sets the defaults for any user interfaces that are set.
-func (s *UserInterfaceSpec) Default() {
-	if s.PGAdmin != nil {
-		s.PGAdmin.Default()
-	}
-}
-
-// PostgresUserInterfaceStatus is a union of the supported PostgreSQL user
-// interface statuses.
-type PostgresUserInterfaceStatus struct {
-
-	// The state of the pgAdmin user interface.
-	PGAdmin PGAdminPodStatus `json:"pgAdmin,omitempty"`
 }
 
 // +genclient
