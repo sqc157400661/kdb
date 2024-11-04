@@ -1,5 +1,7 @@
 package v1beta1
 
+import "github.com/sqc157400661/kdb/apis/shared"
+
 type PatroniSpec struct {
 	// Patroni dynamic configuration settings. Changes to this value will be
 	// automatically reloaded without validation. Changes to certain PostgreSQL
@@ -9,7 +11,7 @@ type PatroniSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	// +kubebuilder:validation:Type=object
-	DynamicConfiguration SchemalessObject `json:"dynamicConfiguration,omitempty"`
+	DynamicConfiguration shared.SchemalessObject `json:"dynamicConfiguration,omitempty"`
 
 	// TTL of the cluster leader lock. "Think of it as the
 	// length of time before initiation of the automatic failover process."

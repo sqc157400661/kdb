@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	"github.com/sqc157400661/kdb/apis/shared"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -43,7 +44,7 @@ type PGBouncerConfiguration struct {
 // PGBouncerPodSpec defines the desired state of a PgBouncer connection pooler.
 type PGBouncerPodSpec struct {
 	// +optional
-	Metadata *Metadata `json:"metadata,omitempty"`
+	Metadata *shared.Metadata `json:"metadata,omitempty"`
 
 	// Scheduling constraints of a PgBouncer pod. Changing this value causes
 	// PgBouncer to restart.
@@ -113,11 +114,7 @@ type PGBouncerPodSpec struct {
 
 	// Specification of the service that exposes PgBouncer.
 	// +optional
-	Service *ServiceSpec `json:"service,omitempty"`
-
-	// Configuration for pgBouncer sidecar containers
-	// +optional
-	Sidecars *PGBouncerSidecars `json:"sidecars,omitempty"`
+	Service *shared.ServiceSpec `json:"service,omitempty"`
 
 	// Tolerations of a PgBouncer pod. Changing this value causes PgBouncer to
 	// restart.
@@ -130,13 +127,6 @@ type PGBouncerPodSpec struct {
 	// More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
 	// +optional
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
-}
-
-// PGBouncerSidecars defines the configuration for pgBouncer sidecar containers
-type PGBouncerSidecars struct {
-	// Defines the configuration for the pgBouncer config sidecar container
-	// +optional
-	PGBouncerConfig *Sidecar `json:"pgbouncerConfig,omitempty"`
 }
 
 // Default returns the default port for PgBouncer (5431) if a port is not

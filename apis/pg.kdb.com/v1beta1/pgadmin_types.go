@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	"github.com/sqc157400661/kdb/apis/shared"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -22,13 +23,13 @@ type PGAdminConfiguration struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
 	// +kubebuilder:validation:Type=object
-	Settings SchemalessObject `json:"settings,omitempty"`
+	Settings shared.SchemalessObject `json:"settings,omitempty"`
 }
 
 // PGAdminPodSpec defines the desired state of a pgAdmin deployment.
 type PGAdminPodSpec struct {
 	// +optional
-	Metadata *Metadata `json:"metadata,omitempty"`
+	Metadata *shared.Metadata `json:"metadata,omitempty"`
 
 	// Scheduling constraints of a pgAdmin pod. Changing this value causes
 	// pgAdmin to restart.
@@ -75,7 +76,7 @@ type PGAdminPodSpec struct {
 
 	// Specification of the service that exposes pgAdmin.
 	// +optional
-	Service *ServiceSpec `json:"service,omitempty"`
+	Service *shared.ServiceSpec `json:"service,omitempty"`
 
 	// Tolerations of a pgAdmin pod. Changing this value causes pgAdmin to restart.
 	// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration

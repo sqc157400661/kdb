@@ -1,4 +1,4 @@
-package v1beta1
+package shared
 
 import (
 	"reflect"
