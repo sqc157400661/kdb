@@ -1,4 +1,9 @@
-package internal
+package naming
+
+const labelPrefix = "kdb."
+const (
+	MySQLClusterID = labelPrefix + "clusterID"
+)
 
 const (
 	MysqlLabelKeyInstanceName = "mysql.kdb.com/instance-name"

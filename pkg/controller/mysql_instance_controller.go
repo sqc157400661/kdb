@@ -4,7 +4,10 @@ import (
 	"context"
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	"github.com/sqc157400661/kdb/config"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql/common"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,28 +24,50 @@ import (
 )
 
 const (
-	// MySQLInstanceControllerName is the name of the MySQLInstance controller
-	MySQLInstanceControllerName = "mysql-instance-controller"
+	// KDBInstanceControllerName is the name of the KDBInstance controller
+	KDBInstanceControllerName = "mysql-instance-controller"
 )
 
-// MySQLInstanceReconciler holds resources for the PostgresCluster reconciler
-type MySQLInstanceReconciler struct {
+// KDBInstanceReconciler holds resources for the PostgresCluster reconciler
+type KDBInstanceReconciler struct {
 	kube.ReconcileHelper
 	Owner    client.FieldOwner
 	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=dbpaas.com,resources=postgresclusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=dbpaas.com,resources=postgresclusters/status,verbs=patch
+// +kubebuilder:rbac:groups=mysql.kdb.com,resources=KDBInstances,verbs=get;list;watch
+// +kubebuilder:rbac:groups=mysql.kdb.com,resources=KDBInstances/status,verbs=patch
 
 // Reconcile reconciles a ConfigMap in a namespace managed by the PostgreSQL Operator
-func (r *MySQLInstanceReconciler) Reconcile(
+func (r *KDBInstanceReconciler) Reconcile(
 	ctx context.Context, request reconcile.Request) (reconcile.Result, error,
 ) {
-	logger := log.FromContext(ctx).WithName("controllers").WithName("postgresCluster")
+	logger := log.FromContext(ctx).WithName("controllers").WithName("mysql-instance")
 	task := kube.NewTask()
-	rc := reconcile_context.NewMySQLContext(kube.NewBaseReconcileContext(r, ctx, request, r.Owner, r.Recorder))
+	rc := reconcile_context.NewInstanceContext(kube.NewBaseReconcileContext(r, ctx, request, r.Owner, r.Recorder))
+	// control the tuning tasks under the current namespace, generally used for emergency and grayscale processes
+	kube.AbortWhen(config.IsNamespacePaused(request.Namespace), "Reconciling is paused, skip")(task)
+	// get the mysql instance from the cache
+	KDBInstance, err := rc.InitInstance()
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if KDBInstance == nil || KDBInstance.Name == "" {
+		return reconcile.Result{}, nil
+	}
+
+	// if the reconcile has been stopped,skip it
+	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
+
+	// activate the defer task for updating instance and status changes after all modifications are completed
+	common.PatchKDBInstanceStatus(task, true)
+	common.PatchKDBInstance(task, true)
+
+	// Check for and handle deletion of cluster.
+	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
+	kube.Branch(rc.IsDeleting(), mysql.HandleDelete, common.CheckAndSetFinalizer)(task)
+
 	return kube.NewExecutor(logger).Execute(rc, task)
 }
 
@@ -61,7 +86,7 @@ func (r *MySQLInstanceReconciler) Reconcile(
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
 
 // SetupWithManager adds the PostgresCluster controller to the provided runtime manager
-func (r *MySQLInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
+func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 	var opts controller.Options
 
 	// TODO: Move this to main with controller-runtime v0.9+
@@ -78,7 +103,7 @@ func (r *MySQLInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 	}
 
 	return builder.ControllerManagedBy(mgr).
-		For(&v1.MySQLInstance{}).
+		For(&v1.KDBInstance{}).
 		WithOptions(opts).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Endpoints{}).

@@ -22,21 +22,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	FinalizerMySQLInstanceSubresources = "mysql.kdb.com/mysql-subresources"
-)
-
-// +kubebuilder:validation:Enum=InternalPVL;ExternalXvip
-type ServiceType string
-
-// MySQLInstanceSpec defines the desired state of MySQLInstance
-type MySQLInstanceSpec struct {
+// KDBInstanceSpec defines the desired state of KDBInstance
+type KDBInstanceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// InstanceSet is the pod of mysql instance
+	// InstanceSet is the pod of KDB instance
 	// +optional
 	InstanceSet shared.InstanceSetSpec `json:"instance"`
+
+	// Engine supports MySQL, PG, and so on
+	// +optional
+	Engine string `json:"Engine"`
+
+	// EngineVersion the major version of KDB engine installed in the image
+	// +kubebuilder:validation:Required
+	EngineVersion string `json:"engineVersion"`
+
+	// EngineFullVersion the full version of KDB engine installed in the image
+	// +optional
+	EngineFullVersion string `json:"postgresFullVersion"`
 
 	// Whether or not the PostgreSQL cluster should be stopped.
 	// When this is true, workloads are scaled to zero and CronJobs
@@ -48,8 +53,8 @@ type MySQLInstanceSpec struct {
 	Config map[string]string `json:"config,omitempty"`
 }
 
-// MySQLInstanceStatus defines the observed state of MySQLInstance
-type MySQLInstanceStatus struct {
+// KDBInstanceStatus defines the observed state of KDBInstance
+type KDBInstanceStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -69,24 +74,24 @@ type MySQLInstanceStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp"
-// MySQLInstance is the Schema for the mysqlinstances API
-type MySQLInstance struct {
+// KDBInstance is the Schema for the KDBinstances API
+type KDBInstance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MySQLInstanceSpec   `json:"spec,omitempty"`
-	Status MySQLInstanceStatus `json:"status,omitempty"`
+	Spec   KDBInstanceSpec   `json:"spec,omitempty"`
+	Status KDBInstanceStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
-// MySQLInstanceList contains a list of MySQLInstance
-type MySQLInstanceList struct {
+// KDBInstanceList contains a list of KDBInstance
+type KDBInstanceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MySQLInstance `json:"items"`
+	Items           []KDBInstance `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&MySQLInstance{}, &MySQLInstanceList{})
+	SchemeBuilder.Register(&KDBInstance{}, &KDBInstanceList{})
 }

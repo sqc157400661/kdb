@@ -12,3 +12,7 @@ var InitMySQLRole string
 func init() {
 	K8SNamespace = os.Getenv(K8SNamespaceEnv)
 }
+
+func IsIsNamespacePaused(namespace string) bool {
+	return false
+}
