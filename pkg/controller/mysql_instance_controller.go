@@ -5,9 +5,11 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
 	"github.com/sqc157400661/kdb/config"
+	"github.com/sqc157400661/kdb/internal/naming"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql"
-	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql/common"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps/pg"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,24 +51,30 @@ func (r *KDBInstanceReconciler) Reconcile(
 	// control the tuning tasks under the current namespace, generally used for emergency and grayscale processes
 	kube.AbortWhen(config.IsNamespacePaused(request.Namespace), "Reconciling is paused, skip")(task)
 	// get the mysql instance from the cache
-	KDBInstance, err := rc.InitInstance()
+	kdbInstance, err := rc.InitInstance()
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	if KDBInstance == nil || KDBInstance.Name == "" {
+	if kdbInstance == nil || kdbInstance.Name == "" {
 		return reconcile.Result{}, nil
 	}
 
 	// if the reconcile has been stopped,skip it
 	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
 
+	var stepManager steps.InstanceStepper
+	if naming.IsMySQLEngine(kdbInstance) {
+		stepManager = &mysql.InstanceStepManager{}
+	} else {
+		stepManager = &pg.InstanceStepManager{}
+	}
 	// activate the defer task for updating instance and status changes after all modifications are completed
-	common.PatchKDBInstanceStatus(task, true)
-	common.PatchKDBInstance(task, true)
+	stepManager.PatchKDBInstanceStatus()(task, true)
+	stepManager.PatchKDBInstance()(task, true)
 
 	// Check for and handle deletion of cluster.
 	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
-	kube.Branch(rc.IsDeleting(), mysql.HandleDelete, common.CheckAndSetFinalizer)(task)
+	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
 
 	return kube.NewExecutor(logger).Execute(rc, task)
 }

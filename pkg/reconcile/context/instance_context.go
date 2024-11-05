@@ -4,11 +4,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type InstanceContext struct {
@@ -18,9 +20,12 @@ type InstanceContext struct {
 	oldInstance *v1.KDBInstance
 	instance    *v1.KDBInstance
 	// config
-	globalConfig map[string][]byte
+	globalConfig *config.GlobalConfig
 
-	clusterConfigMap *corev1.ConfigMap
+	// serviceAccount
+	instanceServiceAccount *corev1.ServiceAccount
+
+	instanceConfigMap *corev1.ConfigMap
 }
 
 func NewInstanceContext(base kube.ReconcileContext) *InstanceContext {
@@ -29,15 +34,23 @@ func NewInstanceContext(base kube.ReconcileContext) *InstanceContext {
 	}
 }
 
+func (rc *InstanceContext) SetGlobalConfig(config *config.GlobalConfig) {
+	rc.globalConfig = config
+}
+
+func (rc *InstanceContext) GetGlobalConfig() config.GlobalConfig {
+	return *rc.globalConfig
+}
+
 // InitInstance initialize instance
 func (rc *InstanceContext) InitInstance() (*v1.KDBInstance, error) {
 	if rc.instance != nil {
 		return rc.instance, nil
 	}
-	// get the postgrescluster from the cache
+	// get the kdb instance from the cache
 	instance := &v1.KDBInstance{}
 	if err := rc.Client().Get(rc.Context(), rc.Request().NamespacedName, instance); err != nil {
-		// NotFound cannot be fixed by requeuing so ignore it. During background
+		// NotFound cannot be fixed by requesting so ignore it. During background
 		// deletion, we receive delete events from cluster's dependents after
 		// cluster is deleted.
 		if err = client.IgnoreNotFound(err); err != nil {
@@ -107,6 +120,13 @@ func (rc *InstanceContext) HasFinalizer(key string) bool {
 	return finalizers.Has(key)
 }
 
+// DeleteFinalizer delete finalizer
+func (rc *InstanceContext) DeleteFinalizer(key string) []string {
+	finalizers := sets.NewString(rc.instance.Finalizers...)
+	finalizers.Delete(key)
+	return finalizers.List()
+}
+
 // PatchKDBInstanceStatus the function for the updating the PostgresCluster status. Returns any error that
 // occurs while attempting to patch the status
 func (rc *InstanceContext) PatchKDBInstanceStatus() error {
@@ -134,4 +154,40 @@ func (rc *InstanceContext) PatchKDBInstance() error {
 	}
 	// not support server-side apply
 	return rc.Client().Patch(rc.Context(), intent, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
+}
+
+func (rc *InstanceContext) SetClusterServiceAccount(sa *corev1.ServiceAccount) {
+	rc.instanceServiceAccount = sa
+}
+
+func (rc *InstanceContext) GetClusterServiceAccountName() string {
+	if rc.instanceServiceAccount == nil {
+		return "default"
+	}
+	return rc.instanceServiceAccount.Name
+}
+
+func (rc *InstanceContext) SetInstanceConfigMap(cm *corev1.ConfigMap) {
+	rc.instanceConfigMap = cm
+}
+
+func (rc *InstanceContext) GetInstanceConfigMap() *corev1.ConfigMap {
+	return rc.instanceConfigMap
+}
+
+// SetControllerReference sets owner as a Controller OwnerReference on controlled.
+// Only one OwnerReference can be a controller, so it returns an error if another
+// is already set.
+func (rc *InstanceContext) SetControllerReference(
+	controlled client.Object,
+) error {
+	return controllerutil.SetControllerReference(rc.instance, controlled, rc.Client().Scheme())
+}
+
+// SetOwnerReference sets an OwnerReference on the object without setting the
+// owner as a controller. This allows for multiple OwnerReferences on an object.
+func (rc *InstanceContext) SetOwnerReference(
+	controlled client.Object,
+) error {
+	return controllerutil.SetOwnerReference(rc.instance, controlled, rc.Client().Scheme())
 }

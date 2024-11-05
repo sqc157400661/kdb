@@ -1,0 +1,50 @@
+[client]
+# 客户端字符集，和MySQL 5.7类似，确保客户端和服务器通信的字符编码一致
+default-character-set=utf8mb4
+# 连接超时时间，单位为秒
+connect_timeout = 10
+
+[mysqld]
+# 服务器唯一ID，用于复制等场景
+server-id = 1
+# 绑定IP地址，0.0.0.0表示所有可用IP
+bind-address = 0.0.0.0
+# 服务端口
+port = 3306
+# 数据存储目录
+datadir = /var/lib/mysql
+# 临时文件目录
+tmpdir = /tmp
+# 错误日志文件路径
+log-error = /var/log/mysql/error.log
+# 慢查询日志开启
+slow-query-log = 1
+slow-query-log-file = /var/log/mysql/slow.log
+# 慢查询时间阈值，单位秒
+long_query_time = 2
+# 最大允许的数据包大小
+max_allowed_packet = 64M
+# 排序缓冲区大小
+sort_buffer_size = 4M
+# 连接缓冲区大小
+join_buffer_size = 4M
+# 线程缓存大小
+thread_cache_size = 16
+# 表缓存大小
+table_open_cache = 4000
+# InnoDB相关配置
+innodb_data_home_dir = /var/lib/mysql
+innodb_log_group_home_dir = /var/lib/mysql
+# InnoDB缓冲池大小，根据服务器内存合理配置，如服务器内存较大可以适当增大
+innodb_buffer_pool_size = 2G
+# InnoDB日志文件大小
+innodb_log_file_size = 512M
+# InnoDB日志缓冲区大小
+innodb_log_buffer_size = 16M
+# InnoDB并发线程数，0表示由系统自动调整
+innodb_thread_concurrency = 0
+# InnoDB自动扩展增量
+innodb_autoextend_increment = 128M
+# MySQL 8新增的密码验证插件配置
+# 强制使用更安全的密码验证策略
+default-authentication-plugin = caching_sha2_password

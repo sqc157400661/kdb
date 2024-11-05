@@ -1,0 +1,24 @@
+root_user: {{.RootUser}}
+root_password: {{.RootPassword}}
+root_socket: /tmp/mysql.socket
+data_dir: /u01/data
+mysql_cnf_file: /etc/my.cnf
+init_users:
+  - username: _monitor_user
+    password: {{.RootPassword}}
+    host: localhost
+    privileges: [SELECT,PROCESSLIST]
+  - username: {{.ReplUser}}
+    password: {{.ReplPassword}}
+    host: localhost
+    privileges: [REPLICATION CLIENT, REPLICATION SLAVE]
+replication:
+  hostname: {{.MasterHostname}}
+  port: 3306
+  host: {{.MasterIP}}
+  repl_user: {{.ReplUser}}
+  repl_password: {{.ReplPassword}}
+backup:
+  crontab:
+  oss: {}
+  s3: {}
