@@ -6,6 +6,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -24,6 +25,8 @@ type InstanceContext struct {
 
 	// serviceAccount
 	instanceServiceAccount *corev1.ServiceAccount
+
+	observedInstance *observed.ObservedSingleInstance
 
 	instanceConfigMap *corev1.ConfigMap
 }
@@ -79,6 +82,13 @@ func (rc *InstanceContext) GetOldInstance() *v1.KDBInstance {
 // GetInstance get current instance object
 func (rc *InstanceContext) GetInstance() *v1.KDBInstance {
 	return rc.instance
+}
+
+func (rc *InstanceContext) SetObservedInstance(instance *observed.ObservedSingleInstance) {
+	rc.observedInstance = instance
+}
+func (rc *InstanceContext) GetObservedInstance() *observed.ObservedSingleInstance {
+	return rc.observedInstance
 }
 
 // IsDeleting The cluster is being deleted and our finalizer is still set.

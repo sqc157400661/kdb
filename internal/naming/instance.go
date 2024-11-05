@@ -1,6 +1,7 @@
 package naming
 
 import (
+	"fmt"
 	"github.com/hashicorp/go-version"
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,10 +39,10 @@ func KDBInstances(cluster string) metav1.LabelSelector {
 }
 
 // KDBInstance selects things for a single instance in a cluster.
-func KDBInstance(instance string) metav1.LabelSelector {
+func KDBInstance(instanceName string) metav1.LabelSelector {
 	return metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			LabelInstance: instance,
+			LabelInstance: instanceName,
 		},
 	}
 }
@@ -113,4 +114,8 @@ func InstanceRBAC(instance *v1.KDBInstance) metav1.ObjectMeta {
 		Namespace: instance.Namespace,
 		Name:      instance.Name + "-sa",
 	}
+}
+
+func InstanceStatefulSetName(instanceSetName string, index int) string {
+	return fmt.Sprintf("%s%d", instanceSetName, index)
 }

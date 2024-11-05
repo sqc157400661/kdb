@@ -4,11 +4,14 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
+	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
 	"github.com/sqc157400661/kdb/internal/rbac"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/util"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -350,7 +353,44 @@ func (s *InstanceStepManager) InitObservedInstance() kube.BindFunc {
 	return s.StepBinder(
 		"InitObservedInstances",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			return reconcile.Result{}, nil
+			instance := rc.GetInstance()
+			pods := &corev1.PodList{}
+			runners := &appsv1.StatefulSetList{}
+			selector, err := naming.AsSelector(naming.KDBInstance(rc.Name()))
+			if err != nil {
+				return flow.Error(err, "get selector err")
+			}
+			err = rc.List(pods, selector)
+			if err != nil {
+				return flow.Error(err, "get pod list err")
+			}
+			err = rc.List(runners, selector)
+			if err != nil {
+				return flow.Error(err, "get runners list err")
+			}
+			obs := observed.NewObservedSingleInstance(instance, runners.Items, pods.Items)
+			rc.SetObservedInstance(obs)
+			status := instance.Status.InstanceSet
+			status.Replicas = *instance.Spec.InstanceSet.Replicas
+			// Fill out status sorted by set name.
+			for _, item := range obs.List {
+				pod := item.Pods[0]
+				if util.IsPodReady(pod) {
+					status.ReadyReplicas++
+					status.PodInfos = append(status.PodInfos, shared.PodStatusInfo{
+						PodName:  pod.Name,
+						PodPhase: pod.Status.Phase,
+						PodIP:    pod.Status.PodIP,
+						NodeName: pod.Spec.NodeName,
+						HostIP:   pod.Status.HostIP,
+					})
+				}
+				if matches, known := item.PodMatchesPodTemplate(); known && matches {
+					status.UpdatedReplicas++
+				}
+			}
+			instance.Status.InstanceSet = status
+			return flow.Pass()
 		})
 }
 
@@ -366,7 +406,28 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleUpInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			return reconcile.Result{}, nil
+			//cluster := rc.PostgresCluster()
+			//observedInstances := rc.GetInstances()
+			//// Range over instance sets to scale up and ensure that each set has
+			//// at least the number of replicas defined in the spec. The set can
+			//// have more replicas than defined
+			//var runners []*appsv1.StatefulSet
+			//for i := range cluster.Spec.InstanceSets {
+			//	set := &cluster.Spec.InstanceSets[i]
+			//	runners = observedInstances.GetRunnersBySetName(set.Name)
+			//	for len(runners) < int(*set.Replicas) {
+			//		next := naming.GenerateInstance(cluster, set, runners...)
+			//		runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
+			//	}
+			//	for n := range runners {
+			//		err := reconcileInstance(rc, runners[n], set, observedInstances.ByName[set.Name])
+			//		if err != nil {
+			//			return flow.Error(err, "reconcileInstance err")
+			//		}
+			//	}
+			//}
+
+			return flow.Pass()
 		})
 }
 

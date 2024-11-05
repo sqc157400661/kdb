@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,15 +46,6 @@ type ServiceSpec struct {
 type InstanceSetSpec struct {
 	// +optional
 	Metadata *Metadata `json:"metadata,omitempty"`
-
-	// Name that associates this set of PostgreSQL pods. This field is optional
-	// when only one instance set is defined. Each instance set in a cluster
-	// must have a unique name. The combined length of this and the cluster name
-	// must be 46 characters or less.
-	// +optional
-	// +kubebuilder:default=""
-	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$`
-	Name string `json:"name"`
 
 	// Number of desired KDB db pods.
 	// +optional
@@ -124,8 +114,6 @@ const (
 // InstanceSetStatus instance status
 // +kubebuilder:validation:Enum=Running;Pending;Failed
 type InstanceSetStatus struct {
-	Name string `json:"name"`
-
 	// Total number of ready pods.
 	// +optional
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
@@ -164,9 +152,6 @@ type PodStatusInfo struct {
 // Default sets the default values for an instance set spec, including the name
 // suffix and number of replicas.
 func (s *InstanceSetSpec) Default(i int) {
-	if s.Name == "" {
-		s.Name = fmt.Sprintf("%02d", i)
-	}
 	if s.Replicas == nil {
 		s.Replicas = new(int32)
 		*s.Replicas = 1
