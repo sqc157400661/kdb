@@ -406,26 +406,24 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleUpInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			//cluster := rc.PostgresCluster()
-			//observedInstances := rc.GetInstances()
-			//// Range over instance sets to scale up and ensure that each set has
-			//// at least the number of replicas defined in the spec. The set can
-			//// have more replicas than defined
-			//var runners []*appsv1.StatefulSet
-			//for i := range cluster.Spec.InstanceSets {
-			//	set := &cluster.Spec.InstanceSets[i]
-			//	runners = observedInstances.GetRunnersBySetName(set.Name)
-			//	for len(runners) < int(*set.Replicas) {
-			//		next := naming.GenerateInstance(cluster, set, runners...)
-			//		runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
-			//	}
-			//	for n := range runners {
-			//		err := reconcileInstance(rc, runners[n], set, observedInstances.ByName[set.Name])
-			//		if err != nil {
-			//			return flow.Error(err, "reconcileInstance err")
-			//		}
-			//	}
-			//}
+			instance := rc.GetInstance()
+			observedInstances := rc.GetObservedInstance()
+			// Range over instance sets to scale up and ensure that each set has
+			// at least the number of replicas defined in the spec. The set can
+			// have more replicas than defined
+			var runners []*appsv1.StatefulSet
+			existNum := len(observedInstances.List)
+			for existNum < int(*instance.Spec.InstanceSet.Replicas) {
+				next := naming.GenerateInstanceStatefulSetMeta(instance, existNum)
+				runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
+				existNum++
+			}
+			for n := range runners {
+				err := reconcileInstance(rc, runners[n], set, observedInstances.ByName[set.Name])
+				if err != nil {
+					return flow.Error(err, "reconcileInstance err")
+				}
+			}
 
 			return flow.Pass()
 		})

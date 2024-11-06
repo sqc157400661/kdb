@@ -119,3 +119,14 @@ func InstanceRBAC(instance *v1.KDBInstance) metav1.ObjectMeta {
 func InstanceStatefulSetName(instanceSetName string, index int) string {
 	return fmt.Sprintf("%s%d", instanceSetName, index)
 }
+
+// GenerateInstanceStatefulSetMeta returns a instance statefulSet meta.
+func GenerateInstanceStatefulSetMeta(
+	instance *v1.KDBInstance,
+	index int,
+) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      InstanceStatefulSetName(instance.Name, index),
+	}
+}
