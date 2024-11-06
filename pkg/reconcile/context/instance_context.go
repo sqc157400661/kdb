@@ -9,7 +9,11 @@ import (
 	"github.com/sqc157400661/kdb/internal/observed"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -27,6 +31,9 @@ type InstanceContext struct {
 	instanceServiceAccount *corev1.ServiceAccount
 
 	observedInstance *observed.ObservedSingleInstance
+
+	// service
+	instancePodService *corev1.Service
 
 	instanceConfigMap *corev1.ConfigMap
 }
@@ -185,6 +192,14 @@ func (rc *InstanceContext) GetInstanceConfigMap() *corev1.ConfigMap {
 	return rc.instanceConfigMap
 }
 
+func (rc *InstanceContext) SetInstancePodService(service *corev1.Service) {
+	rc.instancePodService = service
+}
+
+func (rc *InstanceContext) GetInstancePodService() *corev1.Service {
+	return rc.instancePodService
+}
+
 // SetControllerReference sets owner as a Controller OwnerReference on controlled.
 // Only one OwnerReference can be a controller, so it returns an error if another
 // is already set.
@@ -200,4 +215,80 @@ func (rc *InstanceContext) SetOwnerReference(
 	controlled client.Object,
 ) error {
 	return controllerutil.SetOwnerReference(rc.instance, controlled, rc.Client().Scheme())
+}
+
+// HandlePersistentVolumeClaimError inspects err for expected Kubernetes API
+// responses to writing a PVC. It turns errors it understands into conditions
+// and events. When err is handled it returns nil. Otherwise it returns err.
+func (rc *InstanceContext) HandlePersistentVolumeClaimError(err error) error {
+	instance := rc.GetInstance()
+	var status metav1.Status
+	if api := apierrors.APIStatus(nil); errors.As(err, &api) {
+		status = api.Status()
+	}
+
+	cannotResize := func(err error) {
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:    v1.PersistentVolumeResizing,
+			Status:  metav1.ConditionFalse,
+			Reason:  string(apierrors.ReasonForError(err)),
+			Message: "One or more volumes cannot be resized",
+
+			ObservedGeneration: instance.Generation,
+		})
+	}
+
+	volumeError := func(err error) {
+		rc.Recorder().Event(instance,
+			corev1.EventTypeWarning, "PersistentVolumeError", err.Error())
+	}
+
+	// Forbidden means (RBAC is broken or) the API request was rejected by an
+	// admission controller. Assume it is the latter and raise the issue as a
+	// condition and event.
+	// - https://releases.k8s.io/v1.21.0/plugin/pkg/admission/storage/persistentvolume/resize/admission.go
+	if apierrors.IsForbidden(err) {
+		cannotResize(err)
+		volumeError(err)
+		return nil
+	}
+
+	if apierrors.IsInvalid(err) && status.Details != nil {
+		unknownCause := false
+		for _, cause := range status.Details.Causes {
+			switch {
+			// Forbidden "spec" happens when the PVC is waiting to be bound.
+			// It should resolve on its own and trigger another reconcile. Raise
+			// the issue as an event.
+			// - https://releases.k8s.io/v1.21.0/pkg/apis/core/validation/validation.go#L2028
+			//
+			// TODO: This can also happen when changing a field other
+			// than requests within the spec (access modes, storage class, etc).
+			// That case needs a condition or should be prevented via a webhook.
+			case
+				cause.Type == metav1.CauseType(field.ErrorTypeForbidden) &&
+					cause.Field == "spec":
+				volumeError(err)
+
+			// Forbidden "storage" happens when the change is not allowed. Raise
+			// the issue as a condition and event.
+			// - https://releases.k8s.io/v1.21.0/pkg/apis/core/validation/validation.go#L2028
+			case
+				cause.Type == metav1.CauseType(field.ErrorTypeForbidden) &&
+					cause.Field == "spec.resources.requests.storage":
+				cannotResize(err)
+				volumeError(err)
+
+			default:
+				unknownCause = true
+			}
+		}
+
+		if len(status.Details.Causes) > 0 && !unknownCause {
+			// All the causes were identified and handled.
+			return nil
+		}
+	}
+
+	return err
 }

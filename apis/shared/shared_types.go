@@ -61,6 +61,12 @@ type InstanceSetSpec struct {
 	// +optional
 	RuntimeClassName *string `json:"runtimeClassName,omitempty"`
 
+	// Priority class name for the KDB pod. Changing this value causes
+	// KDB pod to restart.
+	// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+	// +optional
+	PriorityClassName *string `json:"priorityClassName,omitempty"`
+
 	// Scheduling constraints of a KDB pod. Changing this value causes
 	// instance to restart.
 	// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node

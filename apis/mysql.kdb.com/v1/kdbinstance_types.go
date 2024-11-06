@@ -22,6 +22,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	PersistentVolumeResizing   = "PersistentVolumeResizing"
+	PostgresClusterProgressing = "Progressing"
+	ProxyAvailable             = "ProxyAvailable"
+)
+
 // KDBInstanceSpec defines the desired state of KDBInstance
 type KDBInstanceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -50,6 +56,12 @@ type KDBInstanceSpec struct {
 	// +optional
 	Shutdown *bool `json:"shutdown,omitempty"`
 
+	// A list of group IDs applied to the process of a container. These can be
+	// useful when accessing shared file systems with constrained permissions.
+	// More info: https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#security-context
+	// +optional
+	SupplementalGroups []int64 `json:"supplementalGroups,omitempty"`
+
 	Config map[string]string `json:"config,omitempty"`
 }
 
@@ -67,6 +79,20 @@ type KDBInstanceStatus struct {
 	// PVCStatus
 	// +optional
 	PVCPhase corev1.PersistentVolumeClaimPhase `json:"pvcPhase,omitempty"`
+
+	// observedGeneration represents the .metadata.generation on which the status was based.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// conditions represent the observations of postgrescluster's current state.
+	// Known .status.conditions.type are: "PersistentVolumeResizing",
+	// "Progressing", "ProxyAvailable"
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +operator-sdk:csv:customresourcedefinitions:type=status,xDescriptors={"urn:alm:descriptor:io.kubernetes.conditions"}
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +genclient
