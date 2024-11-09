@@ -36,6 +36,8 @@ type InstanceContext struct {
 	instancePodService *corev1.Service
 
 	instanceConfigMap *corev1.ConfigMap
+
+	instanceVolumes []corev1.PersistentVolumeClaim
 }
 
 func NewInstanceContext(base kube.ReconcileContext) *InstanceContext {
@@ -53,6 +55,7 @@ func (rc *InstanceContext) GetGlobalConfig() config.GlobalConfig {
 }
 
 // InitInstance initialize instance
+// TODO add default param or config for mysql and pg
 func (rc *InstanceContext) InitInstance() (*v1.KDBInstance, error) {
 	if rc.instance != nil {
 		return rc.instance, nil
@@ -200,6 +203,26 @@ func (rc *InstanceContext) GetInstancePodService() *corev1.Service {
 	return rc.instancePodService
 }
 
+func (rc *InstanceContext) GetVolumes() ([]corev1.PersistentVolumeClaim, error) {
+	volumeClaims := &corev1.PersistentVolumeClaimList{}
+	selector, err := naming.AsSelector(naming.KDBInstance(rc.Name()))
+	if err == nil {
+		err = errors.WithStack(rc.List(volumeClaims, selector))
+	}
+	rc.instanceVolumes = volumeClaims.Items
+	return rc.instanceVolumes, err
+}
+
+func (rc *InstanceContext) Volumes() []corev1.PersistentVolumeClaim {
+	if rc.instanceVolumes == nil {
+		_, err := rc.GetVolumes()
+		if err != nil {
+			return nil
+		}
+	}
+	return rc.instanceVolumes
+}
+
 // SetControllerReference sets owner as a Controller OwnerReference on controlled.
 // Only one OwnerReference can be a controller, so it returns an error if another
 // is already set.
@@ -215,6 +238,21 @@ func (rc *InstanceContext) SetOwnerReference(
 	controlled client.Object,
 ) error {
 	return controllerutil.SetOwnerReference(rc.instance, controlled, rc.Client().Scheme())
+}
+
+// DeleteControlled safely deletes object when it is controlled by cluster.
+func (rc *InstanceContext) DeleteControlled(
+	object client.Object,
+) error {
+	if metav1.IsControlledBy(object, rc.GetInstance()) {
+		uid := object.GetUID()
+		version := object.GetResourceVersion()
+		exactly := client.Preconditions{UID: &uid, ResourceVersion: &version}
+
+		return rc.Client().Delete(rc.Context(), object, exactly)
+	}
+
+	return nil
 }
 
 // HandlePersistentVolumeClaimError inspects err for expected Kubernetes API

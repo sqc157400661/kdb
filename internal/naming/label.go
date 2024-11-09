@@ -13,6 +13,11 @@ const (
 	LabelHaProxy = labelPrefix + "ha"
 
 	LabelRole = labelPrefix + "role"
+
+	// LabelData is used to identify Pods and Volumes data store KDB data.
+	LabelData = labelPrefix + "data"
+	// LabelLog is used to identify Pods and Volumes log store KDB data.
+	LabelLog = labelPrefix + "log"
 )
 
 const (

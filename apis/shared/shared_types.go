@@ -102,7 +102,7 @@ type InstanceSetSpec struct {
 	// Defines a separate PersistentVolumeClaim for KDB's write-ahead log.
 	// ep.More info: https://www.postgresql.org/docs/current/wal.html
 	// +optional
-	LogVolumeClaimSpec *corev1.PersistentVolumeClaimSpec `json:"logVolumeClaimSpec,omitempty"`
+	LogVolumeClaimSpec *PVCSpec `json:"logVolumeClaimSpec,omitempty"`
 
 	// Topology spread constraints of a KDB pod. Changing this value causes
 	// KDB pod to restart.

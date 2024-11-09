@@ -37,6 +37,12 @@ type KDBInstanceSpec struct {
 	// +optional
 	InstanceSet shared.InstanceSetSpec `json:"instance"`
 
+	// The port on which kdb should listen.
+	// +optional
+	// +kubebuilder:default=5432
+	// +kubebuilder:validation:Minimum=1024
+	Port *int32 `json:"port,omitempty"`
+
 	// Engine supports MySQL, PG, and so on
 	// +optional
 	Engine string `json:"Engine"`
@@ -80,12 +86,7 @@ type KDBInstanceStatus struct {
 	// +optional
 	PVCPhase corev1.PersistentVolumeClaimPhase `json:"pvcPhase,omitempty"`
 
-	// observedGeneration represents the .metadata.generation on which the status was based.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// conditions represent the observations of postgrescluster's current state.
+	// conditions represent the observations of KDB pvc current state.
 	// Known .status.conditions.type are: "PersistentVolumeResizing",
 	// "Progressing", "ProxyAvailable"
 	// +optional

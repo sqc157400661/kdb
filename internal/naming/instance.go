@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/hashicorp/go-version"
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -86,8 +88,19 @@ func KDBInstanceMasterIp(instance *v1.KDBInstance) string {
 	return ""
 }
 
+func Engine(instance *v1.KDBInstance) string {
+	return instance.Spec.Engine
+}
+
 func IsMySQLEngine(instance *v1.KDBInstance) bool {
-	if instance.Spec.Engine == MySQLEngine {
+	if Engine(instance) == MySQLEngine {
+		return true
+	}
+	return false
+}
+
+func IsPGEngine(instance *v1.KDBInstance) bool {
+	if Engine(instance) == PostgresEngine {
 		return true
 	}
 	return false
@@ -129,4 +142,33 @@ func GenerateInstanceStatefulSetMeta(
 		Namespace: instance.Namespace,
 		Name:      InstanceStatefulSetName(instance.Name, index),
 	}
+}
+
+// InstanceDataVolume returns the ObjectMeta for the KDB data
+// volume for instance.
+func InstanceDataVolume(runner *appsv1.StatefulSet) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: runner.GetNamespace(),
+		Name:      runner.GetName() + "-kdb-data",
+	}
+}
+
+// InstanceLogVolume returns the ObjectMeta for the KDB log
+// volume for instance.
+func InstanceLogVolume(runner *appsv1.StatefulSet) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: runner.GetNamespace(),
+		Name:      runner.GetName() + "-kdb-log",
+	}
+}
+func InstanceSetSpec(instance *v1.KDBInstance) shared.InstanceSetSpec {
+	return instance.Spec.InstanceSet
+}
+
+func InstanceDataPvcSpec(instance *v1.KDBInstance) shared.PVCSpec {
+	return instance.Spec.InstanceSet.DataVolumeClaimSpec
+}
+
+func InstanceLogPvcSpec(instance *v1.KDBInstance) *shared.PVCSpec {
+	return instance.Spec.InstanceSet.LogVolumeClaimSpec
 }

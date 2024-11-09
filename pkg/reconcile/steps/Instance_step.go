@@ -418,12 +418,17 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 				runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
 				existNum++
 			}
-			//for n := range runners {
-			//err := reconcileInstance(rc, runners[n], set, observedInstances.ByName[set.Name])
-			//if err != nil {
-			//	return flow.Error(err, "reconcileInstance err")
-			//}
-			//}
+			var err error
+			for n := range runners {
+				if naming.IsMySQLEngine(instance) {
+					err = reconcileMySQLInstance(rc, runners[n])
+				} else if naming.IsPGEngine(instance) {
+					err = reconcilePGInstance(rc, runners[n])
+				}
+				if err != nil {
+					return flow.Error(err, "reconcileInstance err")
+				}
+			}
 
 			return flow.Pass()
 		})
