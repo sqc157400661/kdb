@@ -6,6 +6,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -171,4 +172,17 @@ func InstanceDataPvcSpec(instance *v1.KDBInstance) shared.PVCSpec {
 
 func InstanceLogPvcSpec(instance *v1.KDBInstance) *shared.PVCSpec {
 	return instance.Spec.InstanceSet.LogVolumeClaimSpec
+}
+
+func IsMasterPod(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	if len(pod.Labels) == 0 {
+		return false
+	}
+	if pod.Labels[LabelRole] == MasterRole {
+		return true
+	}
+	return false
 }

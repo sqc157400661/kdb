@@ -13,18 +13,12 @@ import (
 
 // reconcileInstance writes instance according to spec of cluster.
 func reconcileMySQLInstance(rc *context.InstanceContext, runner *appsv1.StatefulSet) (err error) {
-	existing := runner.DeepCopy()
-	//instance := rc.GetInstance()
-	//
-	*runner = appsv1.StatefulSet{}
 	runner.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("StatefulSet"))
-	runner.Namespace, runner.Name = existing.Namespace, existing.Name
 	err = rc.SetControllerReference(runner)
 	if err != nil {
 		return
 	}
 	generate.InstanceStatefulSetIntent(rc, runner)
-	// todo 优化 reconcile Volumes
 	// pvc
 	err = reconcileDataVolume(rc, runner)
 	if err != nil {

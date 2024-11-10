@@ -9,8 +9,24 @@ const (
 )
 
 const (
-	SidecarConfigKey  = "sidecar"
-	DatabaseConfigKey = "database"
+	SidecarConfigKey        = "sidecar"
+	DatabaseConfigKey       = "database"
+	SidecarConfigMapFileKey = "config.yaml"
+	MySQLConfigMapFileKey   = "my.cnf"
+)
+
+const (
+	// DataMountPath is where to mount the main data volume.
+	DataMountPath = "/kdbdata"
+
+	// LogMountPath is where to mount the optional WAL volume.
+	LogMountPath = "/kdblog"
+
+	// DownwardAPIPath is where to mount the downwardAPI volume.
+	DownwardAPIPath = "/etc/containerinfo"
+
+	// ConfigMountPath is where to mount the config volume.
+	ConfigMountPath = "/etc/config"
 )
 
 // Merge takes sets of labels and merges them. The last set

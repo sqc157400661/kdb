@@ -4,17 +4,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const (
-	// DataMountPath is where to mount the main data volume.
-	DataMountPath = "/kdbdata"
-
-	// LogMountPath is where to mount the optional WAL volume.
-	LogMountPath = "/kdblog"
-
-	// DownwardAPIPath is where to mount the downwardAPI volume.
-	DownwardAPIPath = "/etc/containerinfo"
-)
-
 // DataVolumeMount returns the name and mount path of the kdb data volume.
 func DataVolumeMount() corev1.VolumeMount {
 	return corev1.VolumeMount{Name: "kdb-data", MountPath: DataMountPath}
@@ -32,4 +21,9 @@ func DownwardAPIVolumeMount() corev1.VolumeMount {
 		MountPath: DownwardAPIPath,
 		ReadOnly:  true,
 	}
+}
+
+// ConfigVolumeMount returns the name and mount path of the kdb config volume.
+func ConfigVolumeMount() corev1.VolumeMount {
+	return corev1.VolumeMount{Name: "kdb-config", MountPath: ConfigMountPath, ReadOnly: true}
 }

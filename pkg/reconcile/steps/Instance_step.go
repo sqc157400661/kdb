@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"time"
@@ -438,13 +439,62 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleDownInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			return reconcile.Result{}, nil
+			observedInstances := rc.GetObservedInstance()
+			namesToKeep := getNamesNeedToKeep(rc)
+			for _, ins := range observedInstances.List {
+				if !namesToKeep.Has(ins.Name) {
+					err := deleteSts(rc, ins.Name)
+					if err != nil {
+						return flow.Error(err, "deleteInstance err")
+					}
+				}
+			}
+			return flow.Pass()
 		})
+}
+
+func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
+	instance := rc.GetInstance()
+	observedInstances := rc.GetObservedInstance()
+	// want defines the number of replicas we want for each instance set
+	wantNums := *naming.InstanceSetSpec(instance).Replicas
+	namesToKeep := sets.NewString()
+	if wantNums > 0 {
+		for _, ins := range observedInstances.List {
+			if naming.IsMasterPod(ins.Pods[0]) {
+				namesToKeep.Insert(ins.Name)
+			}
+		}
+	}
+	for _, ins := range observedInstances.List {
+		if !naming.IsMasterPod(ins.Pods[0]) && namesToKeep.Len() < int(wantNums) {
+			namesToKeep.Insert(ins.Name)
+		}
+	}
+	return namesToKeep
+}
+
+// deleteSts will delete all resources related to a single sts
+func deleteSts(rc *context.InstanceContext, stsName string) error {
+	sts := appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName}}
+	err := errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&sts)))
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	for _, vol := range rc.Volumes() {
+		if len(vol.Labels) > 0 && vol.Labels[naming.LabelInstanceSet] == stsName {
+			err = errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&vol)))
+			if err == nil {
+				return client.IgnoreNotFound(err)
+			}
+		}
+	}
+	return err
 }
 
 func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
 	return s.StepBinder(
-		"ScaleDownInstance",
+		"SetMonitor",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
 			return reconcile.Result{}, nil
 		})

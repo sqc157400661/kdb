@@ -43,6 +43,44 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 		})
 
 	}
+	// config map
+	configVolumeMount := naming.ConfigVolumeMount()
+	mounts = append(mounts, configVolumeMount)
+	// Add our projections after those specified in the CR. Items later in the
+	// list take precedence over earlier items (that is, last write wins).
+	// - https://kubernetes.io/docs/concepts/storage/volumes/#projected
+	configVolume := corev1.Volume{
+		Name: configVolumeMount.Name,
+		VolumeSource: corev1.VolumeSource{
+			Projected: &corev1.ProjectedVolumeSource{
+				Sources: []corev1.VolumeProjection{
+					{
+						ConfigMap: &corev1.ConfigMapProjection{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: rc.GetInstanceConfigMap().Name,
+							},
+							Items: []corev1.KeyToPath{{
+								Key:  naming.SidecarConfigKey,
+								Path: naming.SidecarConfigMapFileKey,
+							}},
+						},
+					},
+					{
+						ConfigMap: &corev1.ConfigMapProjection{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: rc.GetInstanceConfigMap().Name,
+							},
+							Items: []corev1.KeyToPath{{
+								Key:  naming.DatabaseConfigKey,
+								Path: naming.MySQLConfigMapFileKey,
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	vols = append(vols, configVolume)
 
 	// downward vol
 	downwardAPIVolumeMount := naming.DownwardAPIVolumeMount()
