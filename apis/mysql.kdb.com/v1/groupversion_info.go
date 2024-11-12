@@ -27,7 +27,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects
-	GroupVersion = schema.GroupVersion{Group: "mysql.kdb.com", Version: "v1"}
+	GroupVersion = schema.GroupVersion{Group: "kdb.com", Version: "v1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
@@ -40,10 +40,10 @@ var (
 var SchemeGroupVersion = GroupVersion
 
 var (
-	DefaultNamespace = "mysqldocker"
+	DefaultNamespace = "kdb"
 
-	MysqlInstanceKindName = "MySQLInstance"
-	MySQLClusterKindName  = "MySQLCluster"
+	KDBInstanceKindName = "KDBInstance"
+	KDBClusterKindName  = "KDBCluster"
 )
 
 // Kind takes an unqualified kind and returns back a Group qualified GroupKind
