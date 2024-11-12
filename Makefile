@@ -6,11 +6,8 @@ GO     := $(GOENV) go build
 GOTEST := CGO_ENABLED=1 go test -v -cover
 PACKAGES  := $$(go list ./...| grep -vE 'vendor|tests|case|cicd|dryrun')
 
-# Image URL to use all building/pushing image targets
-IMG ?= controller:latest
 
-IMAGE_NAME ?= reg.docker.alibaba-inc.com/sqc/pgo:v1.0.8
-PAAS_IMAGE_NAME ?= reg.docker.alibaba-inc.com/sqc/paas:test
+IMAGE_NAME ?= kdbdeveloper/operator:v0.0.1
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.25.0
@@ -76,46 +73,21 @@ test:
 
 ##@ Build ---------
 
-.PHONY: build-cli
-build-cli:  ## Build manager binary. fmt vet
-	$(GO) -o hack/containers/bin/postgres_common/cli cmd/cli/main.go
+.PHONY: operator
+operator:
+	$(GO) -o hack/docker/manager cmd/operator/main.go
 
-.PHONY: build-pgo
-build-pgo:  ## Build manager binary. fmt vet
-	$(GO) -o hack/docker/release/manager cmd/operator/main.go
-
-.PHONY: build-image
-build-image: build-pgo
-	cd hack/docker; docker build -f Dockerfile -t $(IMAGE_NAME) .
+.PHONY: operator-docker
+operator-docker: operator
+	docker build -f hack/docker/Dockerfile -t $(IMAGE_NAME) .
 
 .PHONY: docker-push
-docker-push: build-pgo build-image
+docker-push: operator operator-docker
 	docker push $(IMAGE_NAME)
+
 
 generate-client:
 	cd hack && ./update-codegen.sh
-
-swagger:
-	go generate cmd/paas/main.go
-	sed -i '' -e 's/code_alipay_com_dbplatform_pgoperator_pkg_paas_types_dto_//g' docs/swagger.yaml
-	sed -i '' -e 's/code_alipay_com_dbplatform_pgoperator_pkg_paas_//g' docs/swagger.yaml
-	sed -i '' -e 's/request\.//g' docs/swagger.yaml
-	sed -i '' -e 's/whitelist\.//g' docs/swagger.yaml
-	# 替换掉
-
-.PHONY: build-paas
-build-paas:  ## Build manager binary. fmt vet
-	cp config/config.*.yaml hack/docker/;$(GO) -o hack/docker/release/paas cmd/paas/main.go
-
-.PHONY: build-paas-image
-build-paas-image: build-paas
-	cd hack/docker; docker build -f paas.Dockerfile -t $(PAAS_IMAGE_NAME) .
-
-.PHONY: docker-paas-push
-docker-paas-push: build-paas build-paas-image
-	docker push $(PAAS_IMAGE_NAME)
-
-
 
 # PLATFORMS defines the target platforms for  the manager image be build to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
