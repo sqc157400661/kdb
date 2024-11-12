@@ -190,10 +190,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "Unable to new defaultReconcileHelper.")
 		return
 	}
-	if err = (&controller.MySQLInstanceReconciler{
+	if err = (&controller.KDBInstanceReconciler{
 		ReconcileHelper: helper,
-		Owner:           controller.MySQLInstanceControllerName,
-		Recorder:        mgr.GetEventRecorderFor(controller.MySQLInstanceControllerName),
+		Owner:           controller.KDBInstanceControllerName,
+		Recorder:        mgr.GetEventRecorderFor(controller.KDBInstanceControllerName),
 		//Tracer:          otel.Tracer(postgrescluster.ControllerName),
 	}).SetupWithManager(mgr); err != nil {
 		err = errors.Wrap(err, "unable to create PostgresCluster controlle")
