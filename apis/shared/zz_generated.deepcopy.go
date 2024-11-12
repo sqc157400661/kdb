@@ -76,6 +76,11 @@ func (in *InstanceSetSpec) DeepCopyInto(out *InstanceSetSpec) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.PriorityClassName != nil {
+		in, out := &in.PriorityClassName, &out.PriorityClassName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Affinity != nil {
 		in, out := &in.Affinity, &out.Affinity
 		*out = new(v1.Affinity)
@@ -95,7 +100,7 @@ func (in *InstanceSetSpec) DeepCopyInto(out *InstanceSetSpec) {
 	in.DataVolumeClaimSpec.DeepCopyInto(&out.DataVolumeClaimSpec)
 	if in.LogVolumeClaimSpec != nil {
 		in, out := &in.LogVolumeClaimSpec, &out.LogVolumeClaimSpec
-		*out = new(v1.PersistentVolumeClaimSpec)
+		*out = new(PVCSpec)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.TopologySpreadConstraints != nil {
