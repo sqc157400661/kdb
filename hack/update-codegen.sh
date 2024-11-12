@@ -25,12 +25,12 @@ SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")
 #                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
 #                  instead of the $GOPATH directly. For normal projects this can be dropped.
 # "deepcopy,client,informer,lister"
-bash "${SCRIPT_ROOT}"/generate-groups.sh "deepcopy,client,lister,informer" \
-  github.com/sqc157400661/kdb/pkg/pg-generated \
-  github.com/sqc157400661/kdb/apis \
-  "pg.kdb.com:v1beta1" \
-  --go-header-file "${SCRIPT_ROOT}"/boilerplate.go.txt \
-#  --output-base $(pwd)/../
+#bash "${SCRIPT_ROOT}"/generate-groups.sh "deepcopy,client,lister,informer" \
+#  github.com/sqc157400661/kdb/pkg/pg-generated \
+#  github.com/sqc157400661/kdb/apis \
+#  "pg.kdb.com:v1beta1" \
+#  --go-header-file "${SCRIPT_ROOT}"/boilerplate.go.txt \
+##  --output-base $(pwd)/../
 
 #cp -r "${GOPATH}"/src/github.com/sqc157400661/kdb/pkg/* "${SCRIPT_ROOT}"/../pkg/
 # To use your own boilerplate text append:
@@ -43,9 +43,9 @@ bash "${SCRIPT_ROOT}"/generate-groups.sh "deepcopy,client,lister,informer" \
 #                  instead of the $GOPATH directly. For normal projects this can be dropped.
 # "deepcopy,client,informer,lister"
 bash "${SCRIPT_ROOT}"/generate-groups.sh "deepcopy,client,lister,informer" \
-  github.com/sqc157400661/kdb/pkg/mysql-generated \
+  github.com/sqc157400661/kdb/pkg/generated \
   github.com/sqc157400661/kdb/apis \
-  "mysql.kdb.com:v1s" \
+  "kdb.com:v1" \
   --go-header-file "${SCRIPT_ROOT}"/boilerplate.go.txt \
 #  --output-base $(pwd)/../
 

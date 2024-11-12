@@ -3,7 +3,7 @@ package context
 import (
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
-	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"

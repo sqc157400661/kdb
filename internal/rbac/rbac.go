@@ -1,7 +1,7 @@
 package rbac
 
 import (
-	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 )

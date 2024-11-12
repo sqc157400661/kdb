@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"github.com/sqc157400661/helper/kube"
-	v1 "github.com/sqc157400661/kdb/apis/mysql.kdb.com/v1"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
@@ -38,8 +38,8 @@ type KDBInstanceReconciler struct {
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=mysql.kdb.com,resources=KDBInstances,verbs=get;list;watch
-// +kubebuilder:rbac:groups=mysql.kdb.com,resources=KDBInstances/status,verbs=patch
+// +kubebuilder:rbac:groups=kdb.com,resources=KDBInstances,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kdb.com,resources=KDBInstances/status,verbs=patch
 
 // Reconcile reconciles a ConfigMap in a namespace managed by the PostgreSQL Operator
 func (r *KDBInstanceReconciler) Reconcile(
