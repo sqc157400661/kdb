@@ -1,0 +1,134 @@
+apiVersion: kdb.com/v1
+kind: KDBInstance
+metadata:
+  name: example-kdbinstance
+  labels:
+    app: kdb
+spec:
+  instance:
+    metadata:
+      labels:
+        <your-label-key>: <your-label-value>
+      annotations:
+        <your-annotation-key>: <your-annotation-value>
+    replicas: 1
+    runtimeClassName: <your-runtime-class-name>
+    priorityClassName: <your-priority-class-name>
+    affinity:
+      <your-affinity-config-here>
+    tolerations:
+      - <your-toleration-config-here>
+    initContainer:
+      name: init-container-name
+      image: <your-init-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    mainContainer:
+      name: main-container-name
+      image: <your-main-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    sidecarContainer:
+      name: sidecar-container-name
+      image: <your-sidecar-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    monitoring:
+      name: monitoring-container-name
+      image: <your-monitoring-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    dataVolumeClaimSpec:
+      metadata:
+        labels:
+          <your-label-key>: <your-label-value>
+        annotations:
+          <your-annotation-key>: <your-annotation-value>
+      storageClass: <your-storage-class>
+      size: 10Gi
+    logVolumeClaimSpec:
+      metadata:
+        labels:
+          <your-label-key>: <your-label-value>
+        annotations:
+          <your-annotation-key>: <your-annotation-value>
+      storageClass: <your-storage-class>
+      size: 5Gi
+    topologySpreadConstraints:
+      - <your-topology-spread-constraint-config-here>
+  port: 5432
+  Engine: <your-engine-type>
+  engineVersion: <your-engine-version>
+  postgresFullVersion: <your-full-engine-version>
+  shutdown: false
+  supplementalGroups:
+    - 1000
+  config:
+    key1: value1
+    key2: value2
+status:
+  instance:
+    readyReplicas: 1
+    replicas: 1
+    updatedReplicas: 1
+    podInfos:
+      - podName: pod-1
+        podPhase: Running
+        podIP: 192.168.1.100
+        nodeName: node-1
+        hostIP: 192.168.1.1
+  message: ""
+  pvcPhase: Bound
+  conditions:
+    - type: PersistentVolumeResizing
+      status: "False"
+      reason: Resized
+      message: Volume has been resized successfully

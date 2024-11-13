@@ -1,0 +1,116 @@
+apiVersion: kdb.com/v1
+kind: KDBInstance
+metadata:
+  name: kdb01
+  labels:
+    app: kdb
+spec:
+  instance:
+    metadata:
+      labels:
+        <your-label-key>: <your-label-value>
+      annotations:
+        <your-annotation-key>: <your-annotation-value>
+    replicas: 1
+    runtimeClassName: <your-runtime-class-name>
+    priorityClassName: <your-priority-class-name>
+    affinity:
+      <your-affinity-config-here>
+    tolerations:
+      - <your-toleration-config-here>
+    initContainer:
+      name: init-container-name
+      image: <your-init-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    mainContainer:
+      name: main-container-name
+      image: <your-main-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    sidecarContainer:
+      name: sidecar-container-name
+      image: <your-sidecar-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    monitoring:
+      name: monitoring-container-name
+      image: <your-monitoring-container-image>
+      command:
+        - <your-command-here>
+      args:
+        - <your-args-here>
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+    dataVolumeClaimSpec:
+      metadata:
+        labels:
+          <your-label-key>: <your-label-value>
+        annotations:
+          <your-annotation-key>: <your-annotation-value>
+      storageClass: <your-storage-class>
+      size: 10Gi
+    logVolumeClaimSpec:
+      metadata:
+        labels:
+          <your-label-key>: <your-label-value>
+        annotations:
+          <your-annotation-key>: <your-annotation-value>
+      storageClass: <your-storage-class>
+      size: 5Gi
+    topologySpreadConstraints:
+      - <your-topology-spread-constraint-config-here>
+  port: 3306
+  Engine: MySQL
+  engineVersion: 8.0
+  postgresFullVersion: 8.0.37
+  shutdown: false
+  supplementalGroups:
+    - 1000
+  config:
+    key1: value1
+    key2: value2
