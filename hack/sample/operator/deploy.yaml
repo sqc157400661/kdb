@@ -19,13 +19,39 @@ spec:
       labels:
         app: kdb-operator
     spec:
+      serviceAccount: kdb
       containers:
         - name: kdb-operator
-          image: kdbdeveloper/operator:v0.0.1
+          image: kdbdeveloper/operator:v0.0.3
           imagePullPolicy: IfNotPresent
+          env:
+            - name: K8SNamespace
+              value: kdb
           command:
             - /kdb/bin/manager
           args:
             - operator
           ports:
-            - containerPort: 8080
+            - containerPort: 8081
+#          resources:
+#            limits:
+#              cpu: "0.5"
+#              memory: "128Mi"
+#            requests:
+#              cpu: "0.5"
+#              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 5
+
