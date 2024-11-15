@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kdb-global-config
+  namespace: kdb
+type: Opaque
+data:
+  global: eyJkYiI6eyJyb290X3VzZXIiOiAiYkc5allXeHlkRzl2ZEE9PSJ9fQ==

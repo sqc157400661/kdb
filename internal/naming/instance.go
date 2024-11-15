@@ -13,6 +13,7 @@ import (
 )
 
 const GlobalConfigSecret = "kdb-global-config"
+const GlobalConfigSecretKey = "global"
 
 const (
 	MasterRole  = "master"

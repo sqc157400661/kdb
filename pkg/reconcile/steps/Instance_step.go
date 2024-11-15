@@ -264,8 +264,12 @@ func (s *InstanceStepManager) SetGlobalConfig() kube.BindFunc {
 			if len(existing.Data) == 0 {
 				return flow.Error(errors.New("GlobalConfig not exist"), "get GlobalConfig err")
 			}
+			globalConf := existing.Data[naming.GlobalConfigSecretKey]
+			if len(globalConf) == 0 {
+				return flow.Pass()
+			}
 			var conf config.GlobalConfig
-			tmp, err := json.Marshal(existing.Data)
+			tmp, err := json.Marshal(globalConf)
 			if err != nil {
 				return flow.Error(errors.New("Marshal err"), err.Error())
 			}
