@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"strings"
 )
 
 const GlobalConfigSecret = "kdb-global-config"
@@ -94,14 +95,14 @@ func Engine(instance *v1.KDBInstance) string {
 }
 
 func IsMySQLEngine(instance *v1.KDBInstance) bool {
-	if Engine(instance) == MySQLEngine {
+	if strings.ToLower(Engine(instance)) == MySQLEngine {
 		return true
 	}
 	return false
 }
 
 func IsPGEngine(instance *v1.KDBInstance) bool {
-	if Engine(instance) == PostgresEngine {
+	if strings.ToLower(Engine(instance)) == PostgresEngine {
 		return true
 	}
 	return false

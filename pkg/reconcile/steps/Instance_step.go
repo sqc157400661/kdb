@@ -279,7 +279,11 @@ func (s *InstanceStepManager) SetGlobalConfig() kube.BindFunc {
 }
 
 func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
-	return nil
+	return s.StepBinder(
+		"SetInstanceConfig",
+		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			return flow.Pass()
+		})
 }
 
 func (s *InstanceStepManager) SetRbac() kube.BindFunc {

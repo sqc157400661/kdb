@@ -172,6 +172,9 @@ func instanceContainer(rc *context.InstanceContext, mounts []corev1.VolumeMount)
 		SecurityContext: security.InitRestrictedSecurityContext(),
 		VolumeMounts:    mounts,
 	})
+	if instanceSet.SidecarContainer.Name == "" {
+		return
+	}
 	containers = append(containers, corev1.Container{
 		Name:         instanceSet.SidecarContainer.Name,
 		Command:      instanceSet.SidecarContainer.Command,
