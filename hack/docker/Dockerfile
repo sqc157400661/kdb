@@ -12,4 +12,4 @@ COPY hack/scripts/*  /kdb/bin/
 
 WORKDIR /home/admin/
 
-RUN  chmod +x /kdb/bin/manager
+RUN  chmod +x /kdb/bin/*
