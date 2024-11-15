@@ -30,7 +30,7 @@ const (
 	KDBInstanceControllerName = "mysql-instance-controller"
 )
 
-// KDBInstanceReconciler holds resources for the PostgresCluster reconciler
+// KDBInstanceReconciler holds resources for the KDBInstance reconciler
 type KDBInstanceReconciler struct {
 	kube.ReconcileHelper
 	Owner    client.FieldOwner
@@ -99,7 +99,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
 
-// SetupWithManager adds the PostgresCluster controller to the provided runtime manager
+// SetupWithManager adds the KDBInstance controller to the provided runtime manager
 func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 	var opts controller.Options
 

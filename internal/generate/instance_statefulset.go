@@ -52,7 +52,7 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	//sts.Spec.ServiceName = rc.GetClusterPodService().Name
 
 	// Disable StatefulSet's "RollingUpdate" strategy. The rolloutInstances
-	// method considers Pods across the entire PostgresCluster and deletes
+	// method considers Pods across the entire Kdb instance and deletes
 	// them to trigger updates.
 	// - https://docs.k8s.io/concepts/workloads/controllers/statefulset/#on-delete
 	sts.Spec.UpdateStrategy.Type = appsv1.OnDeleteStatefulSetStrategyType

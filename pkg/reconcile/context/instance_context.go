@@ -67,7 +67,7 @@ func (rc *InstanceContext) InitInstance() (*v1.KDBInstance, error) {
 		// deletion, we receive delete events from cluster's dependents after
 		// cluster is deleted.
 		if err = client.IgnoreNotFound(err); err != nil {
-			err = errors.Wrap(err, "unable to fetch PostgresCluster")
+			err = errors.Wrap(err, "unable to fetch KDBInstance")
 		}
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (rc *InstanceContext) DeleteFinalizer(key string) []string {
 	return finalizers.List()
 }
 
-// PatchKDBInstanceStatus the function for the updating the PostgresCluster status. Returns any error that
+// PatchKDBInstanceStatus the function for the updating the KDBInstance status. Returns any error that
 // occurs while attempting to patch the status
 func (rc *InstanceContext) PatchKDBInstanceStatus() error {
 	if !equality.Semantic.DeepEqual(rc.oldInstance.Status, rc.instance.Status) {

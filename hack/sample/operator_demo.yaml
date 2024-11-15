@@ -4,27 +4,28 @@ metadata:
   name: kdb-operator
   namespace: kdb
   labels:
-    app: nginx
+    app: kdb-operator
 spec:
-  replicas: 3
+  replicas: 1
   revisionHistoryLimit: 20     #保留历史版本，默认是10
-  progressDeadlineSeconds: 180s #部署超时时间(s)，默认是600
+  progressDeadlineSeconds: 180 #部署超时时间(s)，默认是600
   strategy: #策略
-    type: RollingUpdates  #滚动更新策略(就是杀死一部分，就启动一部分，在更新过程中，存在两个版本pod,type=Recreate：在创建出新的pod之前会先杀掉所有已存在的pod)
-    rollingUpdate:  #滚动更新(当type为RollingUpdate时生效，用于为RollingUpdate设置参数，支持两个属性)
-      maxSurge: 25% #最大额外可以存在的副本数，可以为百分比，也可以为整数(默认为25%)
-      maxUnavaliable: 25% #最大不可用状态的pod的最大值，可以为百分比，也可以为整数(默认为25%)
+    type: RollingUpdate  #滚动更新策略(就是杀死一部分，就启动一部分，在更新过程中，存在两个版本pod,type=Recreate：在创建出新的pod之前会先杀掉所有已存在的pod)
   selector:   #选择器，通过它指定该控制器管理哪些pod
     matchLabels:
-      app: nginx
+      app: kdb-operator
   template:     #模板，当副本数量不足时，会根据下面的模板创建pod副本
     metadata:
       labels:
-        app: nginx
+        app: kdb-operator
     spec:
       containers:
-        - name: nginx-deploy
-          image: nginx
+        - name: kdb-operator
+          image: kdbdeveloper/operator:v0.0.1
           imagePullPolicy: IfNotPresent
+          command:
+            - /kdb/bin/manager
+          args:
+            - operator
           ports:
-            - containerPort: 81
+            - containerPort: 8080

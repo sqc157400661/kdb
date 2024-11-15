@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	PersistentVolumeResizing   = "PersistentVolumeResizing"
-	PostgresClusterProgressing = "Progressing"
-	ProxyAvailable             = "ProxyAvailable"
+	PersistentVolumeResizing = "PersistentVolumeResizing"
+	KDBInstanceProgressing   = "Progressing"
+	ProxyAvailable           = "ProxyAvailable"
 )
 
 // KDBInstanceSpec defines the desired state of KDBInstance

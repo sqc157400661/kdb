@@ -10,6 +10,6 @@ resources:
   controller: true
   domain: kdb.com
   group: pgcluster.kdb.com
-  kind: PostgresCluster
+  kind: Kdbinstance
   path: kdb/api/postgres/v1beta1
   version: v1beta1

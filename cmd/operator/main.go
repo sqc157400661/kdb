@@ -7,12 +7,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/sqc157400661/helper/kube"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/version"
 	conf "github.com/sqc157400661/kdb/pkg/config"
 	"github.com/sqc157400661/kdb/pkg/controller"
 	"github.com/sqc157400661/kdb/pkg/featuregate"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -137,14 +139,14 @@ func createScheme() (*runtime.Scheme, error) {
 	// create a new scheme specifically for this manager
 	pgoScheme := runtime.NewScheme()
 
-	//if err := clientgoscheme.AddToScheme(pgoScheme); err != nil {
-	//	return nil, err
-	//}
-	//
-	//// add custom resource types to the default scheme
-	//if err := dbpaascomv1beta1.AddToScheme(pgoScheme); err != nil {
-	//	return nil, err
-	//}
+	if err := clientgoscheme.AddToScheme(pgoScheme); err != nil {
+		return nil, err
+	}
+
+	// add custom resource types to the default scheme
+	if err := v1.AddToScheme(pgoScheme); err != nil {
+		return nil, err
+	}
 
 	return pgoScheme, nil
 }
@@ -196,7 +198,7 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		Recorder:        mgr.GetEventRecorderFor(controller.KDBInstanceControllerName),
 		//Tracer:          otel.Tracer(postgrescluster.ControllerName),
 	}).SetupWithManager(mgr); err != nil {
-		err = errors.Wrap(err, "unable to create PostgresCluster controlle")
+		err = errors.Wrap(err, "unable to create KDBInstance controller")
 		return
 	}
 	return
