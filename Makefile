@@ -7,7 +7,7 @@ GOTEST := CGO_ENABLED=1 go test -v -cover
 PACKAGES  := $$(go list ./...| grep -vE 'vendor|tests|case|cicd|dryrun')
 
 
-IMAGE_NAME ?= kdbdeveloper/operator:v0.0.1
+IMAGE_NAME ?= kdbdeveloper/operator:v0.0.2
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.25.0
