@@ -74,6 +74,9 @@ func reconcileDataVolume(rc *context.InstanceContext, runner *appsv1.StatefulSet
 	)
 	pvc.Spec = corev1.PersistentVolumeClaimSpec{
 		StorageClassName: &dataPvcSpec.StorageClass,
+		AccessModes: []corev1.PersistentVolumeAccessMode{
+			corev1.ReadWriteOnce,
+		},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceStorage: dataPvcSpec.Size,
@@ -128,6 +131,9 @@ func reconcileLogVolume(rc *context.InstanceContext, runner *appsv1.StatefulSet)
 	)
 	pvc.Spec = corev1.PersistentVolumeClaimSpec{
 		StorageClassName: &logPvcSpec.StorageClass,
+		AccessModes: []corev1.PersistentVolumeAccessMode{
+			corev1.ReadWriteOnce,
+		},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceStorage: logPvcSpec.Size,
