@@ -379,6 +379,9 @@ func (s *InstanceStepManager) InitObservedInstance() kube.BindFunc {
 			status.Replicas = *instance.Spec.InstanceSet.Replicas
 			// Fill out status sorted by set name.
 			for _, item := range obs.List {
+				if len(item.Pods) == 0 {
+					continue
+				}
 				pod := item.Pods[0]
 				if util.IsPodReady(pod) {
 					status.ReadyReplicas++
