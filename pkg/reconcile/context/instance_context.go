@@ -51,6 +51,9 @@ func (rc *InstanceContext) SetGlobalConfig(config *config.GlobalConfig) {
 }
 
 func (rc *InstanceContext) GetGlobalConfig() config.GlobalConfig {
+	if rc.globalConfig == nil {
+		return config.GlobalConfig{}
+	}
 	return *rc.globalConfig
 }
 

@@ -8,11 +8,11 @@ import (
 
 // KDBInstancePodPermissions returns the RBAC rules needs for KDB instance.
 func KDBInstancePodPermissions() []rbacv1.PolicyRule {
-	rules := make([]rbacv1.PolicyRule, 0, 4)
+	rules := make([]rbacv1.PolicyRule, 0, 2)
 
 	rules = append(rules, rbacv1.PolicyRule{
 		APIGroups: []string{v1.SchemeGroupVersion.Group},
-		Resources: []string{"MySQLInstances"},
+		Resources: []string{"KDBInstances"},
 		Verbs:     []string{"get", "list", "patch", "watch"},
 	})
 
