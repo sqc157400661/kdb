@@ -22,7 +22,7 @@ spec:
       serviceAccount: kdb
       containers:
         - name: kdb-operator
-          image: kdbdeveloper/operator:v0.0.9
+          image: kdbdeveloper/operator:v0.0.10
           imagePullPolicy: IfNotPresent
           env:
             - name: K8SNamespace

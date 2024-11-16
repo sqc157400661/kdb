@@ -48,7 +48,6 @@ func NewObservedSingleInstance(
 ) *ObservedSingleInstance {
 	setNum := *instance.Spec.InstanceSet.Replicas
 	observed := ObservedSingleInstance{
-		List:     make([]*SingleInstance, setNum),
 		BySet:    make(map[string]*SingleInstance, setNum),
 		SetNames: sets.NewString(),
 	}
@@ -75,6 +74,8 @@ func NewObservedSingleInstance(
 				Name: ps,
 			}
 			observed.SetNames.Insert(ps)
+			observed.List = append(observed.List, singleInstance)
+			observed.BySet[ps] = singleInstance
 		}
 		singleInstance.Pods = append(singleInstance.Pods, &pods[i])
 	}
