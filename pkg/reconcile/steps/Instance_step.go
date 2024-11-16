@@ -468,13 +468,13 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	namesToKeep := sets.NewString()
 	if wantNums > 0 {
 		for _, ins := range observedInstances.List {
-			if naming.IsMasterPod(ins.Pods[0]) {
+			if len(ins.Pods) > 0 && naming.IsMasterPod(ins.Pods[0]) {
 				namesToKeep.Insert(ins.Name)
 			}
 		}
 	}
 	for _, ins := range observedInstances.List {
-		if !naming.IsMasterPod(ins.Pods[0]) && namesToKeep.Len() < int(wantNums) {
+		if len(ins.Pods) > 0 && !naming.IsMasterPod(ins.Pods[0]) && namesToKeep.Len() < int(wantNums) {
 			namesToKeep.Insert(ins.Name)
 		}
 	}
