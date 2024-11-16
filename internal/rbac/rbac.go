@@ -12,7 +12,7 @@ func KDBInstancePodPermissions() []rbacv1.PolicyRule {
 
 	rules = append(rules, rbacv1.PolicyRule{
 		APIGroups: []string{v1.SchemeGroupVersion.Group},
-		Resources: []string{"KDBInstances"},
+		Resources: []string{"kdbinstances"},
 		Verbs:     []string{"get", "list", "patch", "watch"},
 	})
 
