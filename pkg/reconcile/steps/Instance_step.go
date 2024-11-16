@@ -269,11 +269,7 @@ func (s *InstanceStepManager) SetGlobalConfig() kube.BindFunc {
 				return flow.Pass()
 			}
 			var conf config.GlobalConfig
-			tmp, err := json.Marshal(globalConf)
-			if err != nil {
-				return flow.Error(errors.New("Marshal err"), err.Error())
-			}
-			err = json.Unmarshal(tmp, &conf)
+			err = json.Unmarshal(globalConf, &conf)
 			if err != nil {
 				return flow.Error(errors.New("Unmarshal err"), err.Error())
 			}
