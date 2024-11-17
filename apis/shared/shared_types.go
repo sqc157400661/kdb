@@ -118,7 +118,6 @@ const (
 )
 
 // InstanceSetStatus instance status
-// +kubebuilder:validation:Enum=Running;Pending;Failed
 type InstanceSetStatus struct {
 	// Total number of ready pods.
 	// +optional

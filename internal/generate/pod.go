@@ -192,11 +192,12 @@ func InstancePodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	mounts, vols := instanceVolsIntent(rc, sts)
 	podTmpl.Spec.Volumes = vols
 	initContainer, containers := instanceContainer(rc, mounts)
-	for _, c := range containers {
-		decorateWithDefaultProbes(&c)
-	}
+	//for _, c := range containers {
+	//	decorateWithDefaultProbes(&c)
+	//}
 	podTmpl.Spec.InitContainers = initContainer
 	podTmpl.Spec.Containers = containers
+	sts.Spec.Template = podTmpl
 }
 
 // decorateWithDefaultProbes adds default liveness and readiness probes to container.
