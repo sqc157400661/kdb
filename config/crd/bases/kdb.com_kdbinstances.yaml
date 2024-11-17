@@ -1004,10 +1004,6 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               instance:
-                enum:
-                - Running
-                - Pending
-                - Failed
                 properties:
                   podInfos:
                     items:
