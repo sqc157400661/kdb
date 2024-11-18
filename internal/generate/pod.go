@@ -156,7 +156,7 @@ func instanceContainer(rc *context.InstanceContext, mounts []corev1.VolumeMount)
 	instance := rc.GetInstance()
 	instanceSet := naming.InstanceSetSpec(instance)
 	containers = append(containers, corev1.Container{
-		Name:      instanceSet.MainContainer.Name,
+		Name:      naming.ContainerDatabase,
 		Command:   instanceSet.MainContainer.Command,
 		Env:       append(RequestEnvironment(instance), instanceSet.MainContainer.Env...),
 		Args:      instanceSet.MainContainer.Args,
@@ -172,11 +172,11 @@ func instanceContainer(rc *context.InstanceContext, mounts []corev1.VolumeMount)
 		SecurityContext: security.InitRestrictedSecurityContext(),
 		VolumeMounts:    mounts,
 	})
-	if instanceSet.SidecarContainer.Name == "" {
+	if instanceSet.SidecarContainer.Image == "" {
 		return
 	}
 	containers = append(containers, corev1.Container{
-		Name:         instanceSet.SidecarContainer.Name,
+		Name:         naming.ContainerSidecar,
 		Command:      instanceSet.SidecarContainer.Command,
 		Env:          append(RequestEnvironment(instance), instanceSet.SidecarContainer.Env...),
 		Args:         instanceSet.SidecarContainer.Args,

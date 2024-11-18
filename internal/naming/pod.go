@@ -11,7 +11,7 @@ const (
 	// ContainerDatabase is the name of the container running KDB database container
 	ContainerDatabase = "database"
 
-	//ContainerSidecar = "mgr"
+	ContainerSidecar = "mgr"
 	//
 	//ContainerInit = "init"
 	//

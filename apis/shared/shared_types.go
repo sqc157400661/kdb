@@ -165,10 +165,6 @@ func (s *InstanceSetSpec) Default(i int) {
 
 // ContainerSpec defines the configuration of a  container
 type ContainerSpec struct {
-	// Name of the container specified as a DNS_LABEL.
-	// Each container in a pod must have a unique name (DNS_LABEL).
-	// Cannot be updated.
-	Name string `json:"name"`
 
 	// +optional
 	Image string `json:"image"`

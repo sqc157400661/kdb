@@ -506,8 +506,6 @@ spec:
                         type: array
                       image:
                         type: string
-                      name:
-                        type: string
                       resources:
                         properties:
                           limits:
@@ -527,8 +525,6 @@ spec:
                               x-kubernetes-int-or-string: true
                             type: object
                         type: object
-                    required:
-                    - name
                     type: object
                   logVolumeClaimSpec:
                     properties:
@@ -630,8 +626,6 @@ spec:
                         type: array
                       image:
                         type: string
-                      name:
-                        type: string
                       resources:
                         properties:
                           limits:
@@ -651,8 +645,6 @@ spec:
                               x-kubernetes-int-or-string: true
                             type: object
                         type: object
-                    required:
-                    - name
                     type: object
                   metadata:
                     properties:
@@ -741,8 +733,6 @@ spec:
                         type: array
                       image:
                         type: string
-                      name:
-                        type: string
                       resources:
                         properties:
                           limits:
@@ -762,8 +752,6 @@ spec:
                               x-kubernetes-int-or-string: true
                             type: object
                         type: object
-                    required:
-                    - name
                     type: object
                   priorityClassName:
                     type: string
@@ -850,8 +838,6 @@ spec:
                         type: array
                       image:
                         type: string
-                      name:
-                        type: string
                       resources:
                         properties:
                           limits:
@@ -871,8 +857,6 @@ spec:
                               x-kubernetes-int-or-string: true
                             type: object
                         type: object
-                    required:
-                    - name
                     type: object
                   tolerations:
                     items:

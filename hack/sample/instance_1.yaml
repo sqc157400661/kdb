@@ -47,7 +47,7 @@ spec:
           cpu: "0.1"
           memory: "100Mi"
     dataVolumeClaimSpec:
-#      storageClass: <your-storage-class>
+      storageClass: standard
       size: 1Gi
   port: 3306
   Engine: MySQL
