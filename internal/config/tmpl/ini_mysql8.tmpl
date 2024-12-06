@@ -14,41 +14,62 @@ bind-address = 0.0.0.0
 # MySQL服务监听的端口
 port = 3306
 # 存储数据的目录路径，MySQL的数据文件、日志文件等会存放在此目录下
-datadir = /var/lib/mysql
+datadir = /u01/data
 # 临时文件目录，用于存储排序等操作产生的临时文件
 tmpdir = /tmp
 # 错误日志文件路径，记录MySQL服务运行过程中的错误信息，方便排查问题
-log-error = /var/log/mysql/error.log
+log-error = /u01/log/my-error.log
+lower_case_table_names = 1
+
+# socket files
+pid_file  = /u01/socket/mysqld.pid
+socket=/u01/socket/mysqld.sock
+mysqlx_socket=/u01/socket/mysqlx.sock
+secure_file_priv=/u01/mysql-files
+
+#open gtid mode
+server_id=1
+gtid_mode=on
+enforce_gtid_consistency=on
+
+#binlog
+log_bin=/u01/log/mysql-bin.log
+log_replica_updates=ON
+binlog_format=row
+max_binlog_size=268435456 #256MiB
+
+#relay log
+skip_replica_start=ON
+relay_log=relay-bin
+
+# query log
 # 通用查询日志文件路径，记录所有执行的查询语句，用于调试和审计，但会消耗较多磁盘空间，一般不开启或仅在调试时开启
 # general-log = 1
-# general-log-file = /var/log/mysql/general.log
+# general-log-file = /u01/log/general.log
 # 慢查询日志设置，记录执行时间超过指定阈值（long_query_time）的查询语句
 slow-query-log = 1
-slow-query-log-file = /var/log/mysql/slow.log
+slow-query-log-file = /u01/log/slow.log
 # 慢查询的时间阈值，单位是秒，超过此时间的查询会被记录到慢查询日志
 long_query_time = 2
-# 设置MySQL可以使用的最大内存，这是一个估算值，MySQL会根据实际负载动态调整内存使用
-# 这个值应该根据服务器的实际内存情况合理设置，避免MySQL占用过多内存导致系统性能下降
-max_allowed_packet = 16M
-# 排序缓冲区大小，用于处理排序操作，增加这个值可以提高排序性能，但也会消耗更多内存
-sort_buffer_size = 2M
-# 连接缓冲区大小，用于每个连接处理查询时的缓存，适当增大可以提高性能
-join_buffer_size = 2M
-# 线程缓存大小，缓存线程以便复用，减少创建和销毁线程的开销，提高性能
-thread_cache_size = 8
-# 表缓存大小，缓存打开的表描述符，提高频繁打开和关闭表的操作效率
-table_open_cache = 2000
-# InnoDB存储引擎配置部分
-# InnoDB数据文件路径和名称
-innodb_data_home_dir = /var/lib/mysql
-innodb_log_group_home_dir = /var/lib/mysql
+
+# plugins
+plugin-load-add=auth_socket.so
+sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION
+# innodb buffer
+innodb_buffer_pool_chunk_size=33554432  # 32MiB
+innodb_buffer_pool_instances=8
+
 # InnoDB缓冲池大小，这是InnoDB性能的关键参数，用于缓存数据和索引，应该根据服务器内存合理设置，一般建议设置为服务器内存的70-80%左右
-innodb_buffer_pool_size = 1G
+innodb_buffer_pool_size=805306368
+# 连接缓冲区大小，用于每个连接处理查询时的缓存，适当增大可以提高性能
+join_buffer_size=262144
+# 排序缓冲区大小，用于处理排序操作，增加这个值可以提高排序性能，但也会消耗更多内存
+sort_buffer_size=262144
+sync_binlog=1
+innodb_flush_log_at_trx_commit=1
 # InnoDB日志文件大小，增大日志文件大小可以减少日志切换频率，但也会增加恢复时间
 innodb_log_file_size = 256M
 # InnoDB日志缓冲区大小，用于缓存日志写入磁盘之前的数据，提高日志写入性能
 innodb_log_buffer_size = 8M
-# InnoDB的线程并发数，根据服务器的CPU核心数合理设置，一般设置为CPU核心数的2倍左右
-innodb_thread_concurrency = 0
-# InnoDB自动扩展增量，用于控制表空间自动扩展的大小
-innodb_autoextend_increment = 64M
+# 这个值应该根据服务器的实际内存情况合理设置，避免MySQL占用过多内存导致系统性能下降
+max_allowed_packet = 16M

@@ -33,7 +33,7 @@ spec:
           memory: "500Mi"
     sidecarContainer:
       name: sidecar
-      image: kdbdeveloper/mysql-sidecar:v0.0.1
+      image: kdbdeveloper/mysql-sidecar:v0.0.2
       command:
         - /kdb/bin/start.sh
       env:
