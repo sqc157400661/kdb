@@ -14,18 +14,18 @@ bind-address = 0.0.0.0
 # MySQL服务监听的端口
 port = 3306
 # 存储数据的目录路径，MySQL的数据文件、日志文件等会存放在此目录下
-datadir = /u01/data
+datadir = /kdbdata/data
 # 临时文件目录，用于存储排序等操作产生的临时文件
 tmpdir = /tmp
 # 错误日志文件路径，记录MySQL服务运行过程中的错误信息，方便排查问题
-log-error = /u01/log/my-error.log
+log-error = /kdbdata/log/my-error.log
 lower_case_table_names = 1
 
 # socket files
-pid_file  = /u01/socket/mysqld.pid
-socket=/u01/socket/mysqld.sock
-mysqlx_socket=/u01/socket/mysqlx.sock
-secure_file_priv=/u01/mysql-files
+pid_file=/kdbdata/socket/mysqld.pid
+socket=/kdbdata/socket/mysqld.sock
+mysqlx_socket=/kdbdata/socket/mysqlx.sock
+secure_file_priv=/kdbdata/mysql-files
 
 #open gtid mode
 server_id=1
@@ -33,7 +33,7 @@ gtid_mode=on
 enforce_gtid_consistency=on
 
 #binlog
-log_bin=/u01/log/mysql-bin.log
+log_bin=/kdbdata/log/mysql-bin.log
 log_replica_updates=ON
 binlog_format=row
 max_binlog_size=268435456 #256MiB
@@ -45,10 +45,10 @@ relay_log=relay-bin
 # query log
 # 通用查询日志文件路径，记录所有执行的查询语句，用于调试和审计，但会消耗较多磁盘空间，一般不开启或仅在调试时开启
 # general-log = 1
-# general-log-file = /u01/log/general.log
+# general-log-file = /kdbdata/log/general.log
 # 慢查询日志设置，记录执行时间超过指定阈值（long_query_time）的查询语句
 slow-query-log = 1
-slow-query-log-file = /u01/log/slow.log
+slow-query-log-file = /kdbdata/log/slow.log
 # 慢查询的时间阈值，单位是秒，超过此时间的查询会被记录到慢查询日志
 long_query_time = 2
 

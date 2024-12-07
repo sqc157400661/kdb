@@ -53,7 +53,7 @@ type KDBInstanceSpec struct {
 
 	// EngineFullVersion the full version of KDB engine installed in the image
 	// +optional
-	EngineFullVersion string `json:"postgresFullVersion"`
+	EngineFullVersion string `json:"engineFullVersion"`
 
 	// Whether or not the PostgreSQL cluster should be stopped.
 	// When this is true, workloads are scaled to zero and CronJobs
