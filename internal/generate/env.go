@@ -3,6 +3,7 @@ package generate
 import (
 	"fmt"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/internal/naming"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -35,6 +36,10 @@ func RequestEnvironment(instance *v1.KDBInstance) []corev1.EnvVar {
 		{
 			Name:  "KDB_PORT",
 			Value: fmt.Sprint(*instance.Spec.Port),
+		},
+		{
+			Name:  "ENGINE_ENV",
+			Value: naming.Engine(instance),
 		},
 	}
 }
