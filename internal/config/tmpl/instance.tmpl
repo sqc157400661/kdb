@@ -2,7 +2,7 @@ root_user: {{.RootUser}}
 root_password: {{.RootPassword}}
 root_socket: /kdbdata/socket/mysqld.sock
 data_dir: /kdbdata/data
-mysql_cnf_file: /etc/mysql/my.cnf
+mysql_cnf_file: /kdbdata/etc/my.cnf
 init_users:
   - username: _monitor_user
     password: {{.RootPassword}}
