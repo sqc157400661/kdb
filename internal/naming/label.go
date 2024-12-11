@@ -2,8 +2,8 @@ package naming
 
 const labelPrefix = "kdb."
 const (
-	// LabelCluster et al. provides the fundamental labels for Postgres instances
-	LabelCluster     = labelPrefix + "clusterID"
+	// LabelClusterID et al. provides the fundamental labels for Postgres instances
+	LabelClusterID   = labelPrefix + "clusterID"
 	LabelInstance    = labelPrefix + "instance"
 	LabelInstanceSet = labelPrefix + "instanceSet"
 

@@ -43,9 +43,13 @@ type KDBInstanceSpec struct {
 	// +kubebuilder:validation:Minimum=1024
 	Port *int32 `json:"port,omitempty"`
 
+	// DeployArch Deployment Architecture
+	// +optional
+	DeployArch string `json:"deployArch"`
+
 	// Engine supports MySQL, PG, and so on
 	// +optional
-	Engine string `json:"Engine"`
+	Engine string `json:"engine"`
 
 	// EngineVersion the major version of KDB engine installed in the image
 	// +kubebuilder:validation:Required

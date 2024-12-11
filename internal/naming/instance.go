@@ -35,7 +35,7 @@ func AsSelector(s metav1.LabelSelector) (labels.Selector, error) {
 func KDBInstances(cluster string) metav1.LabelSelector {
 	return metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			LabelCluster: cluster,
+			LabelClusterID: cluster,
 		},
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{Key: LabelInstance, Operator: metav1.LabelSelectorOpExists},
@@ -56,8 +56,8 @@ func KDBInstance(instanceName string) metav1.LabelSelector {
 func KDBInstanceHaProxy(instance *v1.KDBInstance) metav1.LabelSelector {
 	return metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			LabelCluster: KDBInstanceCluster(instance),
-			LabelHaProxy: HaProxy(instance),
+			LabelClusterID: KDBInstanceClusterID(instance),
+			LabelHaProxy:   HaProxy(instance),
 		},
 	}
 }
@@ -67,10 +67,10 @@ func HaProxy(instance *v1.KDBInstance) string {
 	return instance.Name + "-ha"
 }
 
-// KDBInstanceCluster return cluster id .
-func KDBInstanceCluster(instance *v1.KDBInstance) string {
+// KDBInstanceClusterID return cluster id .
+func KDBInstanceClusterID(instance *v1.KDBInstance) string {
 	if instance.Labels != nil {
-		return instance.Labels[LabelCluster]
+		return instance.Labels[LabelClusterID]
 	}
 	return ""
 }

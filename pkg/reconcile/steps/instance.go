@@ -38,7 +38,7 @@ func reconcileDataVolume(rc *context.InstanceContext, runner *appsv1.StatefulSet
 	instance := rc.GetInstance()
 	instanceVolumes := rc.Volumes()
 	labelMap := map[string]string{
-		naming.LabelCluster:     naming.KDBInstanceCluster(instance),
+		naming.LabelClusterID:   naming.KDBInstanceClusterID(instance),
 		naming.LabelInstanceSet: runner.Name,
 		naming.LabelInstance:    instance.Name,
 		naming.LabelData:        naming.Engine(instance),
@@ -98,7 +98,7 @@ func reconcileLogVolume(rc *context.InstanceContext, runner *appsv1.StatefulSet)
 	}
 	instanceVolumes := rc.Volumes()
 	labelMap := map[string]string{
-		naming.LabelCluster:     naming.KDBInstanceCluster(instance),
+		naming.LabelClusterID:   naming.KDBInstanceClusterID(instance),
 		naming.LabelInstanceSet: runner.Name,
 		naming.LabelInstance:    instance.Name,
 		naming.LabelLog:         naming.Engine(instance),

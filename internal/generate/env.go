@@ -11,28 +11,31 @@ import (
 func RequestEnvironment(instance *v1.KDBInstance) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
-			Name:  "InstanceName",
+			Name:  "CLUSTER_ID",
+			Value: naming.KDBInstanceClusterID(instance),
+		},
+		{
+			Name:  "INSTANCE_NAME",
 			Value: instance.Name,
 		},
 		{
-			Name:  "InstanceNamespace",
+			Name:  "INSTANCE_NAMESPACE",
 			Value: instance.Namespace,
 		},
 		{
-			Name: "Namespace",
+			Name: "NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
 				APIVersion: "v1",
 				FieldPath:  "metadata.namespace",
 			}},
 		},
 		{
-			Name: "MY_POD_NAME",
+			Name: "KDB_HOSTNAME",
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
 				APIVersion: "v1",
 				FieldPath:  "metadata.name",
 			}},
 		},
-
 		{
 			Name:  "KDB_PORT",
 			Value: fmt.Sprint(*instance.Spec.Port),
