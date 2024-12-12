@@ -20,6 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type LeaderInfo struct {
+	Hostname string `json:"hostname"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+}
+
 // KDBClusterSpec defines the desired state of KDBCluster
 type KDBClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -28,6 +34,9 @@ type KDBClusterSpec struct {
 	// Instances is the pod of KDB instances
 	// +optional
 	Instances []KDBInstanceSpec `json:"instances,omitempty"`
+
+	// +optional
+	Leader string `json:"leader"`
 
 	// DeployArch Deployment Architecture
 	// +optional
@@ -38,6 +47,14 @@ type KDBClusterSpec struct {
 type KDBClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// Total number of  instance.
+	// +optional
+	TotalNum int32 `json:"totalNum,omitempty"`
+
+	// Total number of ready instance.
+	// +optional
+	ReadyNum int32 `json:"readyNum,omitempty"`
 
 	// +optional
 	Message string `json:"message,omitempty"`
