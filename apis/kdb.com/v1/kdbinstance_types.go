@@ -37,6 +37,8 @@ type KDBInstanceSpec struct {
 	// +optional
 	InstanceSet shared.InstanceSetSpec `json:"instance"`
 
+	// +optional
+	Leader HostInfo `json:"leader"`
 	// The port on which kdb should listen.
 	// +optional
 	// +kubebuilder:default=5432
