@@ -70,6 +70,7 @@ type InstanceDesc struct {
 	Size resource.Quantity `json:"size"`
 
 	LogSize resource.Quantity `json:"logSize"`
+
 	// The port on which kdb should listen.
 	// +optional
 	// +kubebuilder:default=5432
