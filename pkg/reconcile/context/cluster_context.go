@@ -84,6 +84,21 @@ func (rc *ClusterContext) IsDeleted() bool {
 	return false
 }
 
+// IsDeleting The cluster is being deleted and our finalizer is still set.
+func (rc *ClusterContext) IsDeleting() bool {
+	// An object with Finalizers does not go away when deleted in the Kubernetes
+	// API. Instead, it is given a DeletionTimestamp so that controllers can
+	// react before it goes away. The object will remain in this state until
+	// its Finalizers list is empty. Controllers are expected to remove their
+	// finalizer from this list when they have completed their work.
+	// - https://docs.k8s.io/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#finalizers
+	// - https://book.kubebuilder.io/reference/using-finalizers.html
+	if !rc.cluster.DeletionTimestamp.IsZero() && rc.HasFinalizer(naming.Finalizer) {
+		return true
+	}
+	return false
+}
+
 // IsStopReconcile is the cluster stop reconcile
 func (rc *ClusterContext) IsStopReconcile() bool {
 	if rc.cluster != nil && rc.cluster.Annotations != nil {
