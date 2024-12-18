@@ -41,11 +41,11 @@ func (r *KDBClusterReconciler) Reconcile(
 	// control the tuning tasks under the current namespace, generally used for emergency and grayscale processes
 	kube.AbortWhen(config.IsNamespacePaused(request.Namespace), "Reconciling is paused, skip")(task)
 	// get the mysql instance from the cache
-	KDBCluster, err := rc.InitCluster()
+	kdbCluster, err := rc.InitCluster()
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	if KDBCluster == nil || KDBCluster.Name == "" {
+	if kdbCluster == nil || kdbCluster.Name == "" {
 		return reconcile.Result{}, nil
 	}
 

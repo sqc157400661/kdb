@@ -136,10 +136,11 @@ func (s *ClusterStepManager) SetGlobalConfig() kube.BindFunc {
 		})
 }
 
-func (s *ClusterStepManager) SetInstanceConfig() kube.BindFunc {
+func (s *ClusterStepManager) InitObservedInstance() kube.BindFunc {
 	return s.StepBinder(
-		"SetInstanceConfig",
+		"InitObservedInstances",
 		func(rc *context.ClusterContext, flow kube.Flow) (reconcile.Result, error) {
+			// TODO observed instance
 			return flow.Pass()
 		})
 }
