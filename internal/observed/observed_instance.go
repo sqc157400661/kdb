@@ -8,6 +8,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+type ObservedCluster struct {
+	Items []*v1.KDBInstance
+	Ready int
+}
+
 // SingleInstance represents a single KDB instance.
 type SingleInstance struct {
 	Name   string

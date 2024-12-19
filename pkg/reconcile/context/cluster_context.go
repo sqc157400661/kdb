@@ -6,6 +6,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -16,6 +17,10 @@ type ClusterContext struct {
 
 	oldCluster *v1.KDBCluster
 	cluster    *v1.KDBCluster
+
+	// instances
+	observedCluster *observed.ObservedCluster
+
 	// config
 	globalConfig *config.GlobalConfig
 }
@@ -67,12 +72,12 @@ func (rc *ClusterContext) InitCluster() (*v1.KDBCluster, error) {
 }
 
 // GetOldInstance get the instance object before changed
-func (rc *ClusterContext) GetOldInstance() *v1.KDBCluster {
+func (rc *ClusterContext) GetOldCluster() *v1.KDBCluster {
 	return rc.oldCluster
 }
 
 // GetInstance get current instance object
-func (rc *ClusterContext) GetInstance() *v1.KDBCluster {
+func (rc *ClusterContext) GetCluster() *v1.KDBCluster {
 	return rc.cluster
 }
 
@@ -97,6 +102,25 @@ func (rc *ClusterContext) IsDeleting() bool {
 		return true
 	}
 	return false
+}
+
+func (rc *ClusterContext) InitObservedCluster(instances *v1.KDBInstanceList) {
+	var ready int
+	var items []*v1.KDBInstance
+	for _, v := range instances.Items {
+		items = append(items, &v)
+		if naming.IsInstanceReady(&v) {
+			ready++
+		}
+	}
+	rc.observedCluster = &observed.ObservedCluster{
+		Items: items,
+		Ready: ready,
+	}
+}
+
+func (rc *ClusterContext) GetObservedCluster() *observed.ObservedCluster {
+	return rc.observedCluster
 }
 
 // IsStopReconcile is the cluster stop reconcile

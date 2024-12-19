@@ -4,6 +4,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
@@ -72,7 +73,7 @@ func (s *ClusterStepManager) CheckAndSetFinalizer() kube.BindFunc {
 				// list of Finalizers plus ResourceVersion to detect conflicts with
 				// other potential writers.
 				// - https://issue.k8s.io/99730
-				before := rc.GetInstance().DeepCopy()
+				before := rc.GetCluster().DeepCopy()
 				// Make another copy so that Patch doesn't write back to cluster.
 				intent := before.DeepCopy()
 				intent.Finalizers = append(intent.Finalizers, naming.Finalizer)
@@ -112,7 +113,7 @@ func (s *ClusterStepManager) SetGlobalConfig() kube.BindFunc {
 	return s.StepBinder(
 		"SetGlobalConfig",
 		func(rc *context.ClusterContext, flow kube.Flow) (reconcile.Result, error) {
-			instance := rc.GetInstance()
+			instance := rc.GetCluster()
 			existing := &corev1.Secret{}
 			existing.Namespace, existing.Name = instance.Namespace, naming.GlobalConfigSecret
 			err := errors.WithStack(client.IgnoreNotFound(rc.Get(existing)))
@@ -140,7 +141,16 @@ func (s *ClusterStepManager) InitObservedInstance() kube.BindFunc {
 	return s.StepBinder(
 		"InitObservedInstances",
 		func(rc *context.ClusterContext, flow kube.Flow) (reconcile.Result, error) {
-			// TODO observed instance
+			instances := &v1.KDBInstanceList{}
+			selector, err := naming.AsSelector(naming.KDBCluster(rc.Name()))
+			if err != nil {
+				return flow.Error(err, "get selector err")
+			}
+			err = rc.List(instances, selector)
+			if err != nil {
+				return flow.Error(err, "get instance list err")
+			}
+			rc.InitObservedCluster(instances)
 			return flow.Pass()
 		})
 }

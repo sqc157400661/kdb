@@ -6,6 +6,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/config"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -52,12 +53,11 @@ func (r *KDBClusterReconciler) Reconcile(
 	// if the reconcile has been stopped,skip it
 	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
 
-	//var stepManager steps.InstanceStepper
-	//if naming.IsMySQLEngine(KDBCluster) {
-	//	stepManager = &mysql.InstanceStepManager{}
-	//} else {
-	//	stepManager = &pg.InstanceStepManager{}
-	//}
+	var stepManager steps.ClusterStepManager
+	// Check for and handle deletion of cluster.
+	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
+	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
+	stepManager.InitObservedInstance()(task)
 
 	return kube.NewExecutor(logger).Execute(rc, task)
 }

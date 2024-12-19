@@ -5,6 +5,7 @@ import (
 	"github.com/hashicorp/go-version"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -187,4 +188,20 @@ func IsMasterPod(pod *corev1.Pod) bool {
 		return true
 	}
 	return false
+}
+
+func IsInstanceReady(instance *v1.KDBInstance) bool {
+	if instance == nil {
+		return false
+	}
+
+	if util.Int32(instance.Status.InstanceSet.Replicas) != instance.Spec.InstanceSet.Replicas {
+		return false
+	}
+
+	if instance.Status.Conditions == nil {
+		return false
+	}
+
+	return true
 }
