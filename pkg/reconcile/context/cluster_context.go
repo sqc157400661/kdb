@@ -107,15 +107,18 @@ func (rc *ClusterContext) IsDeleting() bool {
 func (rc *ClusterContext) InitObservedCluster(instances *v1.KDBInstanceList) {
 	var ready int
 	var items []*v1.KDBInstance
+	var byName = make(map[string]*v1.KDBInstance, len(instances.Items))
 	for _, v := range instances.Items {
+		byName[v.Name] = &v
 		items = append(items, &v)
 		if naming.IsInstanceReady(&v) {
 			ready++
 		}
 	}
 	rc.observedCluster = &observed.ObservedCluster{
-		Items: items,
-		Ready: ready,
+		Items:  items,
+		ByName: byName,
+		Ready:  ready,
 	}
 }
 

@@ -205,3 +205,16 @@ func IsInstanceReady(instance *v1.KDBInstance) bool {
 
 	return true
 }
+
+func IsMasterInstance(instance *v1.KDBInstance) bool {
+	if instance == nil {
+		return false
+	}
+	if len(instance.Labels) == 0 {
+		return false
+	}
+	if instance.Labels[LabelRole] == MasterRole {
+		return true
+	}
+	return false
+}

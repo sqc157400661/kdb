@@ -9,7 +9,9 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -24,6 +26,8 @@ type ClusterStepper interface {
 	HandleDelete() kube.BindFunc
 	SetGlobalConfig() kube.BindFunc
 	SetInstanceConfig() kube.BindFunc
+	ScaleUp() kube.BindFunc
+	ScaleDown() kube.BindFunc
 }
 
 type ClusterStepManager struct {
@@ -153,4 +157,74 @@ func (s *ClusterStepManager) InitObservedInstance() kube.BindFunc {
 			rc.InitObservedCluster(instances)
 			return flow.Pass()
 		})
+}
+
+func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
+	return s.StepBinder(
+		"ScaleUp",
+		func(rc *context.ClusterContext, flow kube.Flow) (reconcile.Result, error) {
+			cluster := rc.GetCluster()
+			observedCluster := rc.GetObservedCluster()
+			instances := observedCluster.Items
+			existInstanceNames := sets.NewString()
+			for _, instance := range instances {
+				existInstanceNames.Insert(instance.Name)
+			}
+			for _, ins := range cluster.Spec.Instances {
+				if !existInstanceNames.Has(ins.Name) {
+					observedCluster.AddInstance(&v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{
+						Namespace: cluster.Namespace,
+						Name:      ins.Name,
+					}})
+				}
+				err := reconcileInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
+				if err != nil {
+					return flow.Error(err, "reconcileInstance err")
+				}
+			}
+			return flow.Pass()
+		})
+}
+
+func (s *ClusterStepManager) ScaleDown() kube.BindFunc {
+	return s.StepBinder(
+		"ScaleDown",
+		func(rc *context.ClusterContext, flow kube.Flow) (reconcile.Result, error) {
+			observedCluster := rc.GetObservedCluster()
+			keepNames := getInsNamesNeedToKeep(rc)
+			for _, ins := range observedCluster.Items {
+				if !keepNames.Has(ins.Name) {
+					err := deleteInstance(rc, ins.Name)
+					if err != nil {
+						return flow.Error(err, "deleteInstance err")
+					}
+				}
+			}
+			return flow.Pass()
+		})
+}
+
+// deleteSts will delete all resources related to a single sts
+func deleteInstance(rc *context.ClusterContext, insName string) error {
+	ins := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: insName}}
+	err := errors.WithStack(client.IgnoreNotFound(rc.Client().Delete(rc.Context(), ins)))
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	return err
+}
+
+func getInsNamesNeedToKeep(rc *context.ClusterContext) sets.String {
+	cluster := rc.GetCluster()
+	namesToKeep := sets.NewString()
+	for _, ins := range cluster.Spec.Instances {
+		namesToKeep.Insert(ins.Name)
+	}
+	// TODO: 如果Cluster层先删除了Master如何处理？
+	return namesToKeep
+}
+
+func reconcileInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc) error {
+	// TODO: reconcileInstance
+	return nil
 }

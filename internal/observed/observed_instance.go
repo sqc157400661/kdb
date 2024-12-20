@@ -9,8 +9,26 @@ import (
 )
 
 type ObservedCluster struct {
-	Items []*v1.KDBInstance
-	Ready int
+	Items  []*v1.KDBInstance
+	ByName map[string]*v1.KDBInstance
+	Ready  int
+}
+
+func (i ObservedCluster) AddInstance(instance *v1.KDBInstance) {
+	if instance == nil {
+		return
+	}
+	if i.ByName == nil {
+		i.ByName = map[string]*v1.KDBInstance{}
+	}
+	i.ByName[instance.Name] = instance
+}
+
+func (i ObservedCluster) GetInstanceByName(instanceName string) *v1.KDBInstance {
+	if i.ByName == nil {
+		return nil
+	}
+	return i.ByName[instanceName]
 }
 
 // SingleInstance represents a single KDB instance.
