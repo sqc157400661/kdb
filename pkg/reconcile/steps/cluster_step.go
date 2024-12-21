@@ -6,6 +6,7 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
+	"github.com/sqc157400661/kdb/internal/generate"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	corev1 "k8s.io/api/core/v1"
@@ -177,7 +178,7 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 						Name:      ins.Name,
 					}})
 				}
-				err := reconcileInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
+				err := generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
 				if err != nil {
 					return flow.Error(err, "reconcileInstance err")
 				}
@@ -222,9 +223,4 @@ func getInsNamesNeedToKeep(rc *context.ClusterContext) sets.String {
 	}
 	// TODO: 如果Cluster层先删除了Master如何处理？
 	return namesToKeep
-}
-
-func reconcileInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc) error {
-	// TODO: reconcileInstance
-	return nil
 }

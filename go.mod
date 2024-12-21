@@ -9,7 +9,7 @@ require (
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/pflag v1.0.5
 	github.com/sqc157400661/helper v0.0.3
-	github.com/sqc157400661/util v0.0.8
+	github.com/sqc157400661/util v0.0.10
 	gotest.tools/v3 v3.0.3
 	k8s.io/api v0.25.0
 	k8s.io/apimachinery v0.25.0

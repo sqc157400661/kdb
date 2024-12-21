@@ -2,6 +2,8 @@ package config
 
 import (
 	_ "embed"
+	"github.com/sqc157400661/kdb/internal/naming"
+	"strings"
 )
 
 var (
@@ -17,3 +19,10 @@ var (
 	//go:embed tmpl/instance.tmpl
 	InstanceConfigTmpl string
 )
+
+func GetPortByEngine(engine string) int32 {
+	if strings.ToLower(engine) == naming.MySQLEngine {
+		return 3306
+	}
+	return 0
+}

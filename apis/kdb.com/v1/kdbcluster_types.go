@@ -77,14 +77,6 @@ type InstanceDesc struct {
 	// +kubebuilder:validation:Minimum=1024
 	Port *int32 `json:"port,omitempty"`
 
-	// Engine supports MySQL, PG, and so on
-	// +optional
-	Engine string `json:"engine"`
-
-	// EngineVersion the major version of KDB engine installed in the image
-	// +kubebuilder:validation:Required
-	EngineVersion string `json:"engineVersion"`
-
 	// EngineFullVersion the full version of KDB engine installed in the image
 	// +optional
 	EngineFullVersion string `json:"engineFullVersion"`
@@ -105,6 +97,14 @@ type KDBClusterSpec struct {
 	// DeployArch Deployment Architecture
 	// +optional
 	DeployArch string `json:"deployArch"`
+
+	// Engine supports MySQL, PG, and so on
+	// +optional
+	Engine string `json:"engine"`
+
+	// EngineVersion the major version of KDB engine installed in the image
+	// +kubebuilder:validation:Required
+	EngineVersion string `json:"engineVersion"`
 }
 
 // KDBClusterStatus defines the observed state of KDBCluster
