@@ -58,7 +58,8 @@ func (r *KDBClusterReconciler) Reconcile(
 	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
 	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
 	stepManager.InitObservedInstance()(task)
-
+	stepManager.ScaleUp()(task)
+	stepManager.ScaleDown()(task)
 	return kube.NewExecutor(logger).Execute(rc, task)
 }
 
