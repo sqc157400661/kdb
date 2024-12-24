@@ -44,5 +44,9 @@ func RequestEnvironment(instance *v1.KDBInstance) []corev1.EnvVar {
 			Name:  "ENGINE_ENV",
 			Value: naming.Engine(instance),
 		},
+		{
+			Name:  "DEPLOY_ARCH",
+			Value: naming.DeployArch(instance),
+		},
 	}
 }

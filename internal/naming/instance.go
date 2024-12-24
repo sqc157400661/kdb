@@ -218,3 +218,11 @@ func IsMasterInstance(instance *v1.KDBInstance) bool {
 	}
 	return false
 }
+
+// DeployArch return DeployArch.
+func DeployArch(instance *v1.KDBInstance) string {
+	if instance.Spec.DeployArch != "" {
+		return instance.Spec.DeployArch
+	}
+	return ""
+}
