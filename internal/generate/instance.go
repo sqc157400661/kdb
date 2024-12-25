@@ -7,6 +7,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/util"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc) error {
@@ -34,16 +35,29 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 			Affinity:    desc.Affinity,
 			Tolerations: desc.Tolerations,
 			InitContainer: shared.ContainerSpec{
-				Image: sidecarImage,
+				Image:     sidecarImage,
+				Resources: desc.Resources,
 			},
 			MainContainer: shared.ContainerSpec{
-				Image: mainImage,
+				Image:     mainImage,
+				Resources: desc.Resources,
+				Command:   []string{"/bin/bash", "-c", "/kdb/bin/run_supervisor.sh"}, // TODO: format to /kdb/bin/start.sh
 			},
 			SidecarContainer: shared.ContainerSpec{
-				Image: sidecarImage,
+				Image:   sidecarImage,
+				Command: []string{"/kdb/bin/start.sh"},
+				Resources: corev1.ResourceRequirements{
+					Requests: util.GenerateResource(0.1, 0.5),
+					Limits:   util.GenerateResource(0.1, 0.5),
+				},
 			},
 			MonitorContainer: shared.ContainerSpec{
-				Image: monitorImage,
+				Image:   monitorImage,
+				Command: []string{"/kdb/bin/start.sh"},
+				Resources: corev1.ResourceRequirements{
+					Requests: util.GenerateResource(0.1, 0.5),
+					Limits:   util.GenerateResource(0.1, 0.5),
+				},
 			},
 			DataVolumeClaimSpec: shared.PVCSpec{
 				StorageClass: desc.StorageClass,
