@@ -1,0 +1,34 @@
+apiVersion: kdb.com/v1
+kind: KDBCluster
+metadata:
+  name: kdb01
+  namespace: kdb
+  labels:
+    app: kdb
+spec:
+  instances:
+    - name: mysql1
+      size: 1Gi
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "500Mi"
+        limits:
+          cpu: "0.5"
+          memory: "500Mi"
+    - name: mysql2
+      size: 1Gi
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "500Mi"
+        limits:
+          cpu: "0.5"
+          memory: "500Mi"
+  leader:
+    hostname: mysql1
+  deployArch: MasterSlave
+  Engine: MySQL
+  engine: MySQL
+  engineVersion: "8.0"
+  postgresFullVersion: "8.0.37"
