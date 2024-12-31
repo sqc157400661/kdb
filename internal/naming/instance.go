@@ -26,6 +26,13 @@ const (
 	PostgresEngine = "pg"
 )
 
+const (
+	MySQLSingleDeployArch        = "Single"
+	MySQLMasterSlave01DeployArch = "Master-Slave-01"
+	MySQLMasterSlave02DeployArch = "Master-Slave-02"
+	MySQLMGRDeployArch           = "MGR"
+)
+
 // AsSelector is a wrapper around metav1.LabelSelectorAsSelector() which converts
 // the LabelSelector API type into something that implements labels.Selector.
 func AsSelector(s metav1.LabelSelector) (labels.Selector, error) {
