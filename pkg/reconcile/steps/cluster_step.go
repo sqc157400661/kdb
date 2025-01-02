@@ -173,6 +173,10 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 			for _, instance := range instances {
 				existInstanceNames.Insert(instance.Name)
 			}
+			masters, err := picMasterInstances(rc)
+			if err != nil {
+				return flow.Error(err, "picMasterInstances err")
+			}
 			for _, ins := range cluster.Spec.Instances {
 				if !existInstanceNames.Has(ins.Name) {
 					observedCluster.AddInstance(&v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{
@@ -180,7 +184,7 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 						Name:      ins.Name,
 					}})
 				}
-				err := generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
+				err = generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
 				if err != nil {
 					return flow.Error(err, "reconcileInstance err")
 				}

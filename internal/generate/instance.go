@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc) error {
+func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc, masters []*v1.HostInfo) error {
 	cluster := rc.GetCluster()
 	globalConfig := rc.GetGlobalConfig()
 	instance.Labels = naming.Merge(instance.GetLabels(), cluster.GetLabels())
@@ -27,6 +27,12 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	monitorImage, err := globalConfig.GetMonitorImage(cluster.Spec.Engine, desc.EngineFullVersion)
 	if err != nil {
 		return err
+	}
+	var master v1.HostInfo
+	for _, m := range masters {
+		if m.PodName != naming.InstancePodName(instance.Name, 0) {
+			master = *m
+		}
 	}
 	instanceSet := v1.KDBInstanceSpec{
 		InstanceSet: shared.InstanceSetSpec{
@@ -63,7 +69,7 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 				Size:         desc.Size,
 			},
 		},
-		Leader:            cluster.Spec.Leader,
+		Leader:            master,
 		Port:              util.Int32(config.GetPortByEngine(cluster.Spec.Engine)),
 		DeployArch:        cluster.Spec.DeployArch,
 		Engine:            cluster.Spec.Engine,
