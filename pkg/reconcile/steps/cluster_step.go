@@ -1,6 +1,7 @@
 package steps
 
 import (
+	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
@@ -235,31 +236,22 @@ func picMasterInstances(rc *context.ClusterContext) (masters []*v1.HostInfo, err
 		return picMasterReplicaMasters(&cluster.Spec)
 	}
 	if cluster.Spec.DeployArch == naming.MySQLMasterSlaveDeployArch {
-		return picMasterReplicaMasters(&cluster.Spec)
+		return picMasterSlaveMasters(&cluster.Spec)
 	}
 	return
 }
 
 // picMasterReplicaMasters determines the master replicas for a KDBCluster based on the given specification.
 // It validates the Leader.PodName and Instances in the spec, and then returns the appropriate master pod names.
-//
-// Args:
-//
-//	spec (*v1.KDBClusterSpec): The specification of the KDBCluster.
-//
-// Returns:
-//
-//	masters ([]*v1.HostInfo): A slice of HostInfo structs containing the pod names of the master replicas.
-//	err (error): An error if any validation fails or an unexpected condition occurs.
 func picMasterReplicaMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, err error) {
 	// 1. Validate that Leader.PodName must be empty
-	if spec.Leader.PodName != "" {
-		return nil, errors.New("when DeployArch is MS01, Leader.PodName must be empty")
+	if !naming.IsEmptyLeader(spec.Leader) {
+		return nil, fmt.Errorf("when DeployArch is %s, Leader.PodName must be empty", naming.MySQLMasterReplicaDeployArch)
 	}
 
 	// 2. Validate that the length of Instances must be greater than 1
 	if len(spec.Instances) <= 1 {
-		return nil, errors.New("when DeployArch is MS01, len(Instances) must be greater than 1")
+		return nil, fmt.Errorf("when DeployArch is %s, len(Instances) must be greater than 1", naming.MySQLMasterReplicaDeployArch)
 	}
 
 	// 3. If the length of Instances is 2, return the podName slice of Instances
@@ -288,5 +280,22 @@ func picMasterReplicaMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, e
 			})
 		}
 	}
+	return
+}
+
+// picMasterSlaveMasters determines the master slaves for a KDBCluster based on the given specification.
+func picMasterSlaveMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, err error) {
+	if !naming.IsEmptyLeader(spec.Leader) {
+		return []*v1.HostInfo{&spec.Leader}, nil
+	}
+	// Sort Instances based on CPU resource requests
+	sort.Slice(spec.Instances, func(i, j int) bool {
+		cpuI := spec.Instances[i].Resources.Requests[corev1.ResourceCPU]
+		cpuJ := spec.Instances[j].Resources.Requests[corev1.ResourceCPU]
+		return cpuI.Cmp(cpuJ) > 0 // 降序排序
+	})
+	masters = append(masters, &v1.HostInfo{
+		PodName: naming.InstancePodName(spec.Instances[0].Name, 0),
+	})
 	return
 }
