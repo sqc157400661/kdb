@@ -28,7 +28,6 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	if err != nil {
 		return err
 	}
-
 	instanceSet := v1.KDBInstanceSpec{
 		InstanceSet: shared.InstanceSetSpec{
 			Replicas:    desc.Replicas,

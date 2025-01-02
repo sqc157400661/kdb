@@ -27,9 +27,11 @@ const (
 )
 
 const (
-	MySQLSingleDeployArch        = "Single"
-	MySQLMasterSlave01DeployArch = "Master-Slave-01"
-	MySQLMasterSlave02DeployArch = "Master-Slave-02"
+	MySQLSingleDeployArch = "Single"
+	// MySQLMasterSlaveDeployArch Simple Master-Slave,Master->Salve
+	MySQLMasterSlaveDeployArch = "Master-Slave"
+	// MySQLMasterReplicaDeployArch Master-Replica,Master<->Replica
+	MySQLMasterReplicaDeployArch = "Master-Replica"
 	MySQLMGRDeployArch           = "MGR"
 )
 
@@ -213,6 +215,10 @@ func IsInstanceReady(instance *v1.KDBInstance) bool {
 	return true
 }
 
+func InstancePodName(name string, index int) string {
+	return fmt.Sprintf("%s-%d", name, index)
+}
+
 func IsMasterInstance(instance *v1.KDBInstance) bool {
 	if instance == nil {
 		return false
@@ -232,4 +238,11 @@ func DeployArch(instance *v1.KDBInstance) string {
 		return instance.Spec.DeployArch
 	}
 	return ""
+}
+
+func IsEmptyLeader(leader v1.HostInfo) bool {
+	if leader.PodName == "" || leader.Host == "" {
+		return true
+	}
+	return false
 }

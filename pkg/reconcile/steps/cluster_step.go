@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sort"
 )
 
 type Condition func(rc *context.ClusterContext, log logr.Logger) (bool, error)
@@ -223,4 +224,69 @@ func getInsNamesNeedToKeep(rc *context.ClusterContext) sets.String {
 	}
 	// TODO: 如果Cluster层先删除了Master如何处理？
 	return namesToKeep
+}
+
+func picMasterInstances(rc *context.ClusterContext) (masters []*v1.HostInfo, err error) {
+	cluster := rc.GetCluster()
+	if !naming.IsMasterSlaveCluster(cluster) {
+		return
+	}
+	if cluster.Spec.DeployArch == naming.MySQLMasterReplicaDeployArch {
+		return picMasterReplicaMasters(&cluster.Spec)
+	}
+	if cluster.Spec.DeployArch == naming.MySQLMasterSlaveDeployArch {
+		return picMasterReplicaMasters(&cluster.Spec)
+	}
+	return
+}
+
+// picMasterReplicaMasters determines the master replicas for a KDBCluster based on the given specification.
+// It validates the Leader.PodName and Instances in the spec, and then returns the appropriate master pod names.
+//
+// Args:
+//
+//	spec (*v1.KDBClusterSpec): The specification of the KDBCluster.
+//
+// Returns:
+//
+//	masters ([]*v1.HostInfo): A slice of HostInfo structs containing the pod names of the master replicas.
+//	err (error): An error if any validation fails or an unexpected condition occurs.
+func picMasterReplicaMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, err error) {
+	// 1. Validate that Leader.PodName must be empty
+	if spec.Leader.PodName != "" {
+		return nil, errors.New("when DeployArch is MS01, Leader.PodName must be empty")
+	}
+
+	// 2. Validate that the length of Instances must be greater than 1
+	if len(spec.Instances) <= 1 {
+		return nil, errors.New("when DeployArch is MS01, len(Instances) must be greater than 1")
+	}
+
+	// 3. If the length of Instances is 2, return the podName slice of Instances
+	if len(spec.Instances) == 2 {
+		for _, instance := range spec.Instances {
+			masters = append(masters, &v1.HostInfo{
+				PodName: naming.InstancePodName(instance.Name, 0),
+			})
+		}
+		return masters, nil
+	}
+
+	// 4. If the length of Instances is greater than 2, return the pod names of the two instances with the largest CPU requirements
+	if len(spec.Instances) > 2 {
+		// Sort Instances based on CPU resource requests
+		sort.Slice(spec.Instances, func(i, j int) bool {
+			cpuI := spec.Instances[i].Resources.Requests[corev1.ResourceCPU]
+			cpuJ := spec.Instances[j].Resources.Requests[corev1.ResourceCPU]
+			return cpuI.Cmp(cpuJ) > 0 // 降序排序
+		})
+
+		// Get the pod names of the two instances with the highest CPU requests
+		for i := 0; i < 2; i++ {
+			masters = append(masters, &v1.HostInfo{
+				PodName: naming.InstancePodName(spec.Instances[i].Name, 0),
+			})
+		}
+	}
+	return
 }

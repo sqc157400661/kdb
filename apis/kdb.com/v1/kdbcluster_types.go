@@ -23,9 +23,9 @@ import (
 )
 
 type HostInfo struct {
-	Hostname string `json:"hostname"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
+	PodName string `json:"podName"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
 }
 
 type InstanceDesc struct {
