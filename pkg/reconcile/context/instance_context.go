@@ -3,10 +3,6 @@ package context
 import (
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
-	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
-	"github.com/sqc157400661/kdb/internal/config"
-	"github.com/sqc157400661/kdb/internal/naming"
-	"github.com/sqc157400661/kdb/internal/observed"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -16,6 +12,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/internal/config"
+	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
 )
 
 type InstanceContext struct {
@@ -74,10 +75,8 @@ func (rc *InstanceContext) InitInstance() (*v1.KDBInstance, error) {
 		}
 		return nil, err
 	}
-	// Set any defaults that may not have been stored in the API. No DeepCopy
-	// is necessary because controller-runtime makes a copy before returning
-	// from its cache.
-	// instance.Default()
+	// Set any defaults that may not have been set in the API.
+	instance.Default()
 	rc.oldInstance = instance.DeepCopy()
 	rc.instance = instance
 

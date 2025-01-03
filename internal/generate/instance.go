@@ -1,13 +1,13 @@
 package generate
 
 import (
-	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
-	"github.com/sqc157400661/kdb/apis/shared"
-	"github.com/sqc157400661/kdb/internal/config"
-	"github.com/sqc157400661/kdb/internal/naming"
-	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/util"
 	corev1 "k8s.io/api/core/v1"
+
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
 func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc, masters []*v1.HostInfo) error {
@@ -70,7 +70,7 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 			},
 		},
 		Leader:            master,
-		Port:              util.Int32(config.GetPortByEngine(cluster.Spec.Engine)),
+		Port:              util.Int32(naming.GetPortByEngine(cluster.Spec.Engine)),
 		DeployArch:        cluster.Spec.DeployArch,
 		Engine:            cluster.Spec.Engine,
 		EngineFullVersion: desc.EngineFullVersion,

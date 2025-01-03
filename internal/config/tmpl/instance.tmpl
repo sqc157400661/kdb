@@ -2,6 +2,8 @@ root_user: {{.RootUser}}
 root_password: {{.RootPassword}}
 root_socket: /kdbdata/socket/mysqld.sock
 data_dir: /kdbdata/data
+current_version: {{.CurrentVersion}}
+update_version: {{.UpdateVersion}}
 mysql_cnf_file: /kdbdata/etc/my.cnf
 init_users:
   - username: _monitor_user
@@ -13,9 +15,9 @@ init_users:
     host: localhost
     privileges: [REPLICATION CLIENT, REPLICATION SLAVE]
 replication:
-  hostname: {{.MasterHostname}}
-  port: 3306
-  host: {{.MasterIP}}
+  pod_name: {{.MasterPodName}}
+  port: {{.MasterPort}}
+  host: {{.MasterHost}}
   repl_user: {{.ReplUser}}
   repl_password: {{.ReplPassword}}
 backup:

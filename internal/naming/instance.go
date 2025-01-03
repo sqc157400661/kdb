@@ -2,15 +2,17 @@ package naming
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/hashicorp/go-version"
-	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
-	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"strings"
+
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
 )
 
 const GlobalConfigSecret = "kdb-global-config"
@@ -85,20 +87,29 @@ func KDBInstanceClusterID(instance *v1.KDBInstance) string {
 	return ""
 }
 
-// KDBInstanceMasterHostname return master-slave master pod name .
-func KDBInstanceMasterHostname(instance *v1.KDBInstance) string {
-	if instance.Labels != nil {
-		return instance.Labels[LabelMasterHostname]
-	}
-	return ""
+// KDBInstanceMasterPodName return master-slave master pod name .
+func KDBInstanceMasterPodName(instance *v1.KDBInstance) string {
+	return instance.Spec.Leader.PodName
 }
 
-// KDBInstanceMasterIp return master-slave master pod ip .
-func KDBInstanceMasterIp(instance *v1.KDBInstance) string {
-	if instance.Labels != nil {
-		return instance.Labels[LabelMasterIP]
+// KDBInstanceMasterHost return master-slave master pod ip or dns.
+func KDBInstanceMasterHost(instance *v1.KDBInstance) string {
+	return instance.Spec.Leader.Host
+}
+
+// KDBInstanceMasterPort return master-slave master port.
+func KDBInstanceMasterPort(instance *v1.KDBInstance) int32 {
+	if instance.Spec.Leader.Port != 0 {
+		return instance.Spec.Leader.Port
 	}
-	return ""
+	return GetPortByEngine(Engine(instance))
+}
+
+func GetPortByEngine(engine string) int32 {
+	if strings.ToLower(engine) == MySQLEngine {
+		return 3306
+	}
+	return 0
 }
 
 func Engine(instance *v1.KDBInstance) string {
@@ -216,7 +227,7 @@ func IsInstanceReady(instance *v1.KDBInstance) bool {
 }
 
 func InstancePodName(name string, index int) string {
-	return fmt.Sprintf("%s-%d", name, index)
+	return fmt.Sprintf("%s-0", InstanceStatefulSetName(name, index))
 }
 
 func IsMasterInstance(instance *v1.KDBInstance) bool {

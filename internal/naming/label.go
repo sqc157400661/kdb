@@ -7,9 +7,6 @@ const (
 	LabelInstance    = labelPrefix + "instance"
 	LabelInstanceSet = labelPrefix + "instanceSet"
 
-	LabelMasterHostname = labelPrefix + "masterHostname"
-	LabelMasterIP       = labelPrefix + "masterIP"
-
 	LabelHaProxy = labelPrefix + "ha"
 
 	LabelRole = labelPrefix + "role"

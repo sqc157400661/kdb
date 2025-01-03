@@ -4,13 +4,14 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
+	"github.com/sqc157400661/util"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
-	"github.com/sqc157400661/util"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type InstanceStepManager struct {
@@ -45,8 +46,11 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				"RootPassword":   globalConfig.DB.RootPassword,
 				"ReplUser":       globalConfig.DB.ReplUser,
 				"ReplPassword":   globalConfig.DB.ReplPassword,
-				"MasterIP":       naming.KDBInstanceMasterHostname(instance),
-				"MasterHostname": naming.KDBInstanceMasterIp(instance),
+				"CurrentVersion": naming.CurrentConfigVersion(instance),
+				"UpdateVersion":  naming.UpdateConfigVersion(instance),
+				"MasterPort":     naming.KDBInstanceMasterPort(instance),
+				"MasterHost":     naming.KDBInstanceMasterHost(instance),
+				"MasterPodName":  naming.KDBInstanceMasterPodName(instance),
 			})
 			if err != nil {
 				return flow.Error(err, "get instance config err")

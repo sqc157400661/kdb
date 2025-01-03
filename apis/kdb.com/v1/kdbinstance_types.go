@@ -17,9 +17,11 @@ limitations under the License.
 package v1
 
 import (
-	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/sqc157400661/kdb/apis/shared"
 )
 
 const (
@@ -114,6 +116,15 @@ type KDBInstance struct {
 
 	Spec   KDBInstanceSpec   `json:"spec,omitempty"`
 	Status KDBInstanceStatus `json:"status,omitempty"`
+}
+
+func (k *KDBInstance) Default() {
+	if k == nil {
+		return
+	}
+	if k.Spec.InstanceSet.Replicas == nil {
+		k.Spec.InstanceSet.Replicas = util.Int32(1)
+	}
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -1,15 +1,11 @@
 package steps
 
 import (
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
-	"github.com/sqc157400661/kdb/apis/shared"
-	"github.com/sqc157400661/kdb/internal/config"
-	"github.com/sqc157400661/kdb/internal/naming"
-	"github.com/sqc157400661/kdb/internal/observed"
-	"github.com/sqc157400661/kdb/internal/rbac"
-	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,7 +17,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
+
+	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/kdb/internal/config"
+	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
+	"github.com/sqc157400661/kdb/internal/rbac"
+	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
 type ConditionFunc func(rc *context.InstanceContext, log logr.Logger) (bool, error)
@@ -282,6 +284,7 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 	return s.StepBinder(
 		"SetInstanceConfig",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+
 			return flow.Pass()
 		})
 }
