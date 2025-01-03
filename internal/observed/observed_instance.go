@@ -31,8 +31,8 @@ func (i ObservedCluster) GetInstanceByName(instanceName string) *v1.KDBInstance 
 	return i.ByName[instanceName]
 }
 
-// SingleInstance represents a single KDB instance.
-type SingleInstance struct {
+// SingleRunner represents a single KDB instance.
+type SingleRunner struct {
 	Name   string
 	Pods   []*corev1.Pod
 	Runner *appsv1.StatefulSet
@@ -41,7 +41,7 @@ type SingleInstance struct {
 // PodMatchesPodTemplate returns whether or not the Pod for this instance
 // matches its specified PodTemplate. When it does not match, the Pod needs to
 // be redeployed.
-func (i SingleInstance) PodMatchesPodTemplate() (matches bool, known bool) {
+func (i SingleRunner) PodMatchesPodTemplate() (matches bool, known bool) {
 	if i.Runner == nil || len(i.Pods) != 1 {
 		return false, false
 	}
@@ -56,22 +56,22 @@ func (i SingleInstance) PodMatchesPodTemplate() (matches bool, known bool) {
 	return podRevision == i.Runner.Status.UpdateRevision, true
 }
 
-// ObservedSingleInstance represents the KDB instance.
-type ObservedSingleInstance struct {
-	List     []*SingleInstance          // by instance name
-	BySet    map[string]*SingleInstance // by StatefulSet name
+// ObservedRunner represents the KDB instance.
+type ObservedRunner struct {
+	List     []*SingleRunner          // by instance name
+	BySet    map[string]*SingleRunner // by StatefulSet name
 	SetNames sets.String
 }
 
-// NewObservedSingleInstance builds an ObservedSingleInstance from Kubernetes API objects.
-func NewObservedSingleInstance(
+// NewObservedRunner builds an ObservedSingleInstance from Kubernetes API objects.
+func NewObservedRunner(
 	instance *v1.KDBInstance,
 	runners []appsv1.StatefulSet,
 	pods []corev1.Pod,
-) *ObservedSingleInstance {
+) *ObservedRunner {
 	setNum := *instance.Spec.InstanceSet.Replicas
-	observed := ObservedSingleInstance{
-		BySet:    make(map[string]*SingleInstance, setNum),
+	observed := ObservedRunner{
+		BySet:    make(map[string]*SingleRunner, setNum),
 		SetNames: sets.NewString(),
 	}
 	for i := 0; i < int(setNum); i++ {
@@ -81,7 +81,7 @@ func NewObservedSingleInstance(
 
 	for i := range runners {
 		ri := runners[i].Name
-		singleInstance := &SingleInstance{
+		singleInstance := &SingleRunner{
 			Name:   ri,
 			Runner: &runners[i],
 		}
@@ -93,7 +93,7 @@ func NewObservedSingleInstance(
 		ps := pods[i].Labels[naming.LabelInstanceSet]
 		singleInstance := observed.BySet[ps]
 		if singleInstance == nil {
-			singleInstance = &SingleInstance{
+			singleInstance = &SingleRunner{
 				Name: ps,
 			}
 			observed.SetNames.Insert(ps)

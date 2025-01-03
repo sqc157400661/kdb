@@ -184,7 +184,7 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 						Name:      ins.Name,
 					}})
 				}
-				err = generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins)
+				err = generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins, masters)
 				if err != nil {
 					return flow.Error(err, "reconcileInstance err")
 				}

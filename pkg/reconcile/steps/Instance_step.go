@@ -376,8 +376,8 @@ func (s *InstanceStepManager) InitObservedInstance() kube.BindFunc {
 			if err != nil {
 				return flow.Error(err, "get runners list err")
 			}
-			obs := observed.NewObservedSingleInstance(instance, runners.Items, pods.Items)
-			rc.SetObservedInstance(obs)
+			obs := observed.NewObservedRunner(instance, runners.Items, pods.Items)
+			rc.SetObservedRunner(obs)
 			status := instance.Status.InstanceSet
 			status.Replicas = *instance.Spec.InstanceSet.Replicas
 			// Fill out status sorted by set name.
@@ -418,7 +418,7 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 		"ScaleUpInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
 			instance := rc.GetInstance()
-			observedInstances := rc.GetObservedInstance()
+			observedInstances := rc.GetObservedRunner()
 			// Range over instance sets to scale up and ensure that each set has
 			// at least the number of replicas defined in the spec. The set can
 			// have more replicas than defined
@@ -449,7 +449,7 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleDownInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			observedInstances := rc.GetObservedInstance()
+			observedInstances := rc.GetObservedRunner()
 			namesToKeep := getNamesNeedToKeep(rc)
 			for _, ins := range observedInstances.List {
 				if !namesToKeep.Has(ins.Name) {
@@ -465,7 +465,7 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 
 func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	instance := rc.GetInstance()
-	observedInstances := rc.GetObservedInstance()
+	observedInstances := rc.GetObservedRunner()
 	// want defines the number of replicas we want for each instance set
 	wantNums := *naming.InstanceSetSpec(instance).Replicas
 	namesToKeep := sets.NewString()

@@ -31,7 +31,7 @@ type InstanceContext struct {
 	// serviceAccount
 	instanceServiceAccount *corev1.ServiceAccount
 
-	observedInstance *observed.ObservedSingleInstance
+	observedRunner *observed.ObservedRunner
 
 	// service
 	instancePodService *corev1.Service
@@ -96,11 +96,11 @@ func (rc *InstanceContext) GetInstance() *v1.KDBInstance {
 	return rc.instance
 }
 
-func (rc *InstanceContext) SetObservedInstance(instance *observed.ObservedSingleInstance) {
-	rc.observedInstance = instance
+func (rc *InstanceContext) SetObservedRunner(instance *observed.ObservedRunner) {
+	rc.observedRunner = instance
 }
-func (rc *InstanceContext) GetObservedInstance() *observed.ObservedSingleInstance {
-	return rc.observedInstance
+func (rc *InstanceContext) GetObservedRunner() *observed.ObservedRunner {
+	return rc.observedRunner
 }
 
 // IsDeleting The cluster is being deleted and our finalizer is still set.
