@@ -39,7 +39,7 @@ type InstanceStepper interface {
 	SetGlobalConfig() kube.BindFunc
 	SetInstanceConfig() kube.BindFunc
 	SetRbac() kube.BindFunc
-	InitObservedInstance() kube.BindFunc
+	InitObservedRunner() kube.BindFunc
 	SetService() kube.BindFunc
 	ScaleUpInstance() kube.BindFunc
 	ScaleDownInstance() kube.BindFunc
@@ -357,7 +357,7 @@ func (s *InstanceStepManager) SetRbac() kube.BindFunc {
 		})
 }
 
-func (s *InstanceStepManager) InitObservedInstance() kube.BindFunc {
+func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 	return s.StepBinder(
 		"InitObservedInstances",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {

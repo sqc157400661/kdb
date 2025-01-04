@@ -79,7 +79,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 	stepManager.SetInstanceConfig()(task)
 	stepManager.SetRbac()(task)
 	stepManager.SetService()(task)
-	stepManager.InitObservedInstance()(task)
+	stepManager.InitObservedRunner()(task)
 	stepManager.ScaleUpInstance()(task)
 	stepManager.ScaleDownInstance()(task)
 	return kube.NewExecutor(logger).Execute(rc, task)
