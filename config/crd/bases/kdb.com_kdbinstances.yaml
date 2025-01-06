@@ -31,12 +31,16 @@ spec:
             type: object
           spec:
             properties:
-              Engine:
-                type: string
               config:
                 additionalProperties:
                   type: string
                 type: object
+              deployArch:
+                type: string
+              engine:
+                type: string
+              engineFullVersion:
+                type: string
               engineVersion:
                 type: string
               instance:
@@ -929,13 +933,25 @@ spec:
                 required:
                 - dataVolumeClaimSpec
                 type: object
+              leader:
+                properties:
+                  host:
+                    type: string
+                  podName:
+                    type: string
+                  port:
+                    format: int32
+                    type: integer
+                required:
+                - host
+                - podName
+                - port
+                type: object
               port:
                 default: 5432
                 format: int32
                 minimum: 1024
                 type: integer
-              postgresFullVersion:
-                type: string
               shutdown:
                 type: boolean
               supplementalGroups:
