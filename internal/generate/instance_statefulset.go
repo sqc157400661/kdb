@@ -1,19 +1,19 @@
 package generate
 
 import (
-	"github.com/sqc157400661/kdb/internal/naming"
-	"github.com/sqc157400661/kdb/internal/security"
-	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/security"
+	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
 func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	instance := rc.GetInstance()
 	instanceSet := instance.Spec.InstanceSet
-	//numInstancePods := rc.GetInstances().AllPodsNum()
 	sts.Annotations = naming.Merge(
 		instance.Annotations,
 		instanceSet.Metadata.GetAnnotationsOrNil())
@@ -65,10 +65,11 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 		sts.Spec.Template.Spec.PriorityClassName = *instanceSet.PriorityClassName
 	}
 
-	// this is the designated instance, but
-	// - others are still running during shutdown, or
-	// - it is time to startup.
-	sts.Spec.Replicas = util.Int32(1)
+	if instance.Spec.Shutdown != nil && *instance.Spec.Shutdown {
+		sts.Spec.Replicas = util.Int32(0)
+	} else {
+		sts.Spec.Replicas = util.Int32(1)
+	}
 
 	// Restart containers any time they stop, die, are killed, etc.
 	// - https://docs.k8s.io/concepts/workloads/pods/pod-lifecycle/#restart-policy

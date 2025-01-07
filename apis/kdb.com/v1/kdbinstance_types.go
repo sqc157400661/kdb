@@ -63,10 +63,8 @@ type KDBInstanceSpec struct {
 	// +optional
 	EngineFullVersion string `json:"engineFullVersion"`
 
-	// Whether or not the PostgreSQL cluster should be stopped.
-	// When this is true, workloads are scaled to zero and CronJobs
-	// are suspended.
-	// Other resources, such as Services and Volumes, remain in place.
+	// Whether or not the kdb instance should be stopped.
+	// set statefulset replicas = 0 to deleting pod, but keep pvc
 	// +optional
 	Shutdown *bool `json:"shutdown,omitempty"`
 
