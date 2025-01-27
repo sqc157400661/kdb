@@ -48,5 +48,12 @@ func RequestEnvironment(instance *v1.KDBInstance) []corev1.EnvVar {
 			Name:  "DEPLOY_ARCH",
 			Value: naming.DeployArch(instance),
 		},
+		{
+			Name: "KDB_POD_IP",
+			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+				APIVersion: "v1",
+				FieldPath:  "status.podIP",
+			}},
+		},
 	}
 }
