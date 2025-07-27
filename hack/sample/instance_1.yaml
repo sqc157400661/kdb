@@ -15,7 +15,7 @@ spec:
     replicas: 1
     runtimeClassName: runc
     mainContainer:
-      name: mysqld
+      #name: mysqld
       image: kdbdeveloper/mysql80:v0.0.7
       command:
         - /bin/bash
@@ -32,7 +32,7 @@ spec:
           cpu: "0.5"
           memory: "500Mi"
     sidecarContainer:
-      name: sidecar
+      #name: sidecar
       image: kdbdeveloper/mysql-sidecar:v0.0.10
       command:
         - /kdb/bin/start.sh
@@ -50,10 +50,10 @@ spec:
       storageClass: standard
       size: 1Gi
   port: 3306
-  Engine: MySQL
+  engine: MySQL
 #  engine: MySQL
   engineVersion: "8.0"
-  postgresFullVersion: "8.0.37"
+#  postgresFullVersion: "8.0.37"
   shutdown: false
   supplementalGroups:
     - 1000

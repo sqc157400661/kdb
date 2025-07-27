@@ -378,7 +378,7 @@ func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 			}
 			obs := observed.NewObservedRunner(instance, runners.Items, pods.Items)
 			rc.SetObservedRunner(obs)
-			status := instance.Status.InstanceSet
+			status := shared.InstanceSetStatus{}
 			status.Replicas = *instance.Spec.InstanceSet.Replicas
 			// Fill out status sorted by set name.
 			for _, item := range obs.List {
