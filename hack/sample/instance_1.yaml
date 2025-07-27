@@ -51,7 +51,7 @@ spec:
       size: 1Gi
   port: 3306
   Engine: MySQL
-  engine: MySQL
+#  engine: MySQL
   engineVersion: "8.0"
   postgresFullVersion: "8.0.37"
   shutdown: false

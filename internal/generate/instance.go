@@ -82,5 +82,6 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 			StorageClass: desc.StorageClass,
 		}
 	}
+	instance.Spec = instanceSet
 	return nil
 }

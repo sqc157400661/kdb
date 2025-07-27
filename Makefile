@@ -81,6 +81,10 @@ operator-docker: operator
 docker-push: operator operator-docker
 	docker push $(IMAGE_NAME)
 
+.PHONY: kind-load
+kind-load: operator operator-docker
+	kind load docker-image $(IMAGE_NAME)
+
 
 generate-client:
 	cd hack && ./update-codegen.sh
