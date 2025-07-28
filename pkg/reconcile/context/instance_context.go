@@ -1,6 +1,7 @@
 package context
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
 	corev1 "k8s.io/api/core/v1"
@@ -250,10 +251,10 @@ func (rc *InstanceContext) DeleteControlled(
 		uid := object.GetUID()
 		version := object.GetResourceVersion()
 		exactly := client.Preconditions{UID: &uid, ResourceVersion: &version}
-
+		fmt.Println("1")
 		return rc.Client().Delete(rc.Context(), object, exactly)
 	}
-
+	fmt.Println("2")
 	return nil
 }
 

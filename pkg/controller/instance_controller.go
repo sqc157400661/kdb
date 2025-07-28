@@ -42,17 +42,21 @@ type KDBInstanceReconciler struct {
 // +kubebuilder:rbac:groups=kdb.com,resources=KDBInstances,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kdb.com,resources=KDBInstances/status,verbs=patch
 
+// TODO:
+// 1.实例创建后，没有标记role IsMasterPod判断有问题
+// operator 可以使用demo进行部署，但是好像sidecar有点问题，无法构建主从
+
 // Reconcile reconciles a ConfigMap in a namespace managed by the PostgreSQL Operator
 func (r *KDBInstanceReconciler) Reconcile(
 	ctx context.Context, request reconcile.Request) (reconcile.Result, error,
 ) {
 	logger := log.FromContext(ctx).WithName("controllers").WithName("mysql-instance")
 	task := kube.NewTask()
-	fmt.Println("[debug] start task")
+
 	rc := reconcile_context.NewInstanceContext(kube.NewBaseReconcileContext(r, ctx, request, r.Owner, r.Recorder))
 	// control the tuning tasks under the current namespace, generally used for emergency and grayscale processes
 	kube.AbortWhen(config.IsNamespacePaused(request.Namespace), "Reconciling is paused, skip")(task)
-	fmt.Println("[debug] start init")
+
 	// get the mysql instance from the cache
 	kdbInstance, err := rc.InitInstance()
 	if err != nil {
@@ -64,13 +68,13 @@ func (r *KDBInstanceReconciler) Reconcile(
 
 	// if the reconcile has been stopped,skip it
 	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
-	fmt.Println("[debug] start Stepper")
+
 	var stepManager steps.InstanceStepper
 	if naming.IsMySQLEngine(kdbInstance) {
-		fmt.Println("mysql engnie")
+		fmt.Println("[debug] mysql engnie")
 		stepManager = &mysql.InstanceStepManager{}
 	} else {
-		fmt.Println("pg engnie")
+		fmt.Println("[debug] pg engnie")
 		stepManager = &pg.InstanceStepManager{}
 	}
 	// activate the defer task for updating instance and status changes after all modifications are completed
@@ -80,19 +84,12 @@ func (r *KDBInstanceReconciler) Reconcile(
 	// Check for and handle deletion of cluster.
 	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
 	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
-	fmt.Println("[debug] start SetGlobalConfig")
 	stepManager.SetGlobalConfig()(task)
-	fmt.Println("[debug] start SetInstanceConfig")
 	stepManager.SetInstanceConfig()(task)
-	fmt.Println("[debug] start SetRbac")
 	stepManager.SetRbac()(task)
-	fmt.Println("[debug] start SetService")
 	stepManager.SetService()(task)
-	fmt.Println("[debug] start SetService")
 	stepManager.InitObservedRunner()(task)
-	fmt.Println("[debug] start ScaleUpInstance")
 	stepManager.ScaleUpInstance()(task)
-	fmt.Println("[debug] start ScaleDownInstance")
 	stepManager.ScaleDownInstance()(task)
 	return kube.NewExecutor(logger).Execute(rc, task)
 }

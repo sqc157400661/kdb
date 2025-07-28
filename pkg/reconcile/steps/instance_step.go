@@ -476,6 +476,7 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 			}
 		}
 	}
+
 	for _, ins := range observedInstances.List {
 		if len(ins.Pods) > 0 && !naming.IsMasterPod(ins.Pods[0]) && namesToKeep.Len() < int(wantNums) {
 			namesToKeep.Insert(ins.Name)
@@ -486,8 +487,12 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 
 // deleteSts will delete all resources related to a single sts
 func deleteSts(rc *context.InstanceContext, stsName string) error {
-	sts := appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName}}
-	err := errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&sts)))
+	sts := appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: rc.Namespace()}}
+	err := rc.Get(&sts)
+	if client.IgnoreNotFound(err) != nil {
+		return errors.WithStack(err)
+	}
+	err = errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&sts)))
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
