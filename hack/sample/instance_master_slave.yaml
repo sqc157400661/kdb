@@ -1,0 +1,63 @@
+apiVersion: kdb.com/v1
+kind: KDBInstance
+metadata:
+  name: kdb01
+  namespace: kdb
+  labels:
+    app: kdb
+spec:
+  instance:
+    metadata:
+      labels:
+        test: test1
+      annotations:
+        test2: test3
+    replicas: 2
+    runtimeClassName: runc
+    mainContainer:
+      #name: mysqld
+      image: kdbdeveloper/mysql80:v0.0.7
+      command:
+        - /bin/bash
+        - -c
+        - /kdb/bin/run_supervisor.sh
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "500Mi"
+        limits:
+          cpu: "0.5"
+          memory: "500Mi"
+    sidecarContainer:
+      #name: sidecar
+      image: kdbdeveloper/mysql-sidecar:v0.0.10
+      command:
+        - /kdb/bin/start.sh
+      env:
+        - name: ENV_VAR_NAME
+          value: ENV_VAR_VALUE
+      resources:
+        requests:
+          cpu: "0.1"
+          memory: "100Mi"
+        limits:
+          cpu: "0.1"
+          memory: "100Mi"
+    dataVolumeClaimSpec:
+      storageClass: standard
+      size: 1Gi
+  port: 3306
+  engine: MySQL
+#  engine: MySQL
+  engineVersion: "8.0"
+  deployArch: Master-Slave
+#  postgresFullVersion: "8.0.37"
+  shutdown: false
+  supplementalGroups:
+    - 1000
+  config:
+    key1: value1
+    key2: value2
