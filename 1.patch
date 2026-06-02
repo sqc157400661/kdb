@@ -1,0 +1,61 @@
+diff --git a/apis/kdb.com/v1/kdbinstance_types.go b/apis/kdb.com/v1/kdbinstance_types.go
+index 494bab9..ee40f5f 100644
+--- a/apis/kdb.com/v1/kdbinstance_types.go
++++ b/apis/kdb.com/v1/kdbinstance_types.go
+@@ -63,10 +63,8 @@ type KDBInstanceSpec struct {
+ 	// +optional
+ 	EngineFullVersion string `json:"engineFullVersion"`
+ 
+-	// Whether or not the PostgreSQL cluster should be stopped.
+-	// When this is true, workloads are scaled to zero and CronJobs
+-	// are suspended.
+-	// Other resources, such as Services and Volumes, remain in place.
++	// Whether or not the kdb instance should be stopped.
++	// set statefulset replicas = 0 to deleting pod, but keep pvc
+ 	// +optional
+ 	Shutdown *bool `json:"shutdown,omitempty"`
+ 
+diff --git a/internal/generate/instance_statefulset.go b/internal/generate/instance_statefulset.go
+index 2017005..0446b13 100644
+--- a/internal/generate/instance_statefulset.go
++++ b/internal/generate/instance_statefulset.go
+@@ -1,19 +1,19 @@
+ package generate
+ 
+ import (
+-	"github.com/sqc157400661/kdb/internal/naming"
+-	"github.com/sqc157400661/kdb/internal/security"
+-	"github.com/sqc157400661/kdb/pkg/reconcile/context"
+ 	"github.com/sqc157400661/util"
+ 	appsv1 "k8s.io/api/apps/v1"
+ 	corev1 "k8s.io/api/core/v1"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++
++	"github.com/sqc157400661/kdb/internal/naming"
++	"github.com/sqc157400661/kdb/internal/security"
++	"github.com/sqc157400661/kdb/pkg/reconcile/context"
+ )
+ 
+ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
+ 	instance := rc.GetInstance()
+ 	instanceSet := instance.Spec.InstanceSet
+-	//numInstancePods := rc.GetInstances().AllPodsNum()
+ 	sts.Annotations = naming.Merge(
+ 		instance.Annotations,
+ 		instanceSet.Metadata.GetAnnotationsOrNil())
+@@ -65,10 +65,11 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
+ 		sts.Spec.Template.Spec.PriorityClassName = *instanceSet.PriorityClassName
+ 	}
+ 
+-	// this is the designated instance, but
+-	// - others are still running during shutdown, or
+-	// - it is time to startup.
+-	sts.Spec.Replicas = util.Int32(1)
++	if instance.Spec.Shutdown != nil && *instance.Spec.Shutdown {
++		sts.Spec.Replicas = util.Int32(0)
++	} else {
++		sts.Spec.Replicas = util.Int32(1)
++	}
+ 
+ 	// Restart containers any time they stop, die, are killed, etc.
+ 	// - https://docs.k8s.io/concepts/workloads/pods/pod-lifecycle/#restart-policy

@@ -1,7 +1,7 @@
 apiVersion: kdb.com/v1
 kind: KDBInstance
 metadata:
-  name: kdb01
+  name: kdb-mgr-single
   namespace: kdb
   labels:
     app: kdb
@@ -12,11 +12,10 @@ spec:
         test: test1
       annotations:
         test2: test3
-    replicas: 1
+    replicas: 3
     runtimeClassName: runc
     mainContainer:
-      #name: mysqld
-      image: kdbdeveloper/mysql80:v0.0.7
+      image: kdbdeveloper/mysql80-mgr:v0.0.1
       command:
         - /bin/bash
         - -c
@@ -27,12 +26,11 @@ spec:
       resources:
         requests:
           cpu: "0.5"
-          memory: "500Mi"
+          memory: "1Gi"
         limits:
-          cpu: "0.5"
-          memory: "500Mi"
+          cpu: "1"
+          memory: "2Gi"
     sidecarContainer:
-      #name: sidecar
       image: kdbdeveloper/mysql-sidecar:v0.0.10
       command:
         - /kdb/bin/start.sh
@@ -44,36 +42,20 @@ spec:
           cpu: "0.1"
           memory: "100Mi"
         limits:
-          cpu: "0.5"
-          memory: "1024Mi"
+          cpu: "0.1"
+          memory: "100Mi"
     dataVolumeClaimSpec:
       storageClass: standard
       size: 1Gi
   port: 3306
   engine: MySQL
-#  engine: MySQL
-  deployArch: Single
   engineVersion: "8.0"
-#  postgresFullVersion: "8.0.37"
+  deployArch: MGR
   mysql:
-    exporter:
-      enabled: true
-      image: kdbdeveloper/mysql-exporter:v0.0.1
-      env:
-        - name: MYSQL_EXPORTER_USER
-          value: exporter
-        - name: MYSQL_EXPORTER_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: kdb01-monitor
-              key: password
-      resources:
-        requests:
-          cpu: "0.05"
-          memory: "64Mi"
-        limits:
-          cpu: "0.1"
-          memory: "128Mi"
+    mgr:
+      mode: SinglePrimary
+      bootstrapOrdinal: 0
+      groupPort: 33061
   shutdown: false
   supplementalGroups:
     - 1000

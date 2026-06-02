@@ -2,6 +2,7 @@ package naming
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/hashicorp/go-version"
@@ -157,6 +158,29 @@ func InstanceStatefulSetName(instanceSetName string, index int) string {
 	return fmt.Sprintf("%s%d", instanceSetName, index)
 }
 
+func InstanceStsNum(instance *v1.KDBInstance, statefulSetName string) int {
+	if instance == nil {
+		return 0
+	}
+	prefix := instance.Name
+	if !strings.HasPrefix(statefulSetName, prefix) {
+		return 0
+	}
+	numStr := strings.TrimPrefix(statefulSetName, prefix)
+	if numStr == "" {
+		return 0
+	}
+	num := 0
+	for i := 0; i < len(numStr); i++ {
+		c := numStr[i]
+		if c < '0' || c > '9' {
+			return 0
+		}
+		num = num*10 + int(c-'0')
+	}
+	return num
+}
+
 // GenerateInstanceStatefulSetMeta returns a instance statefulSet meta.
 func GenerateInstanceStatefulSetMeta(
 	instance *v1.KDBInstance,
@@ -228,6 +252,21 @@ func IsInstanceReady(instance *v1.KDBInstance) bool {
 
 func InstancePodName(name string, index int) string {
 	return fmt.Sprintf("%s-0", InstanceStatefulSetName(name, index))
+}
+
+func InstancePodServiceName(instanceName string) string {
+	return instanceName
+}
+
+func ClusterDomain() string {
+	if domain := os.Getenv("KDB_CLUSTER_DOMAIN"); domain != "" {
+		return domain
+	}
+	return "cluster.local"
+}
+
+func InstancePodHost(name, serviceName, namespace string, index int) string {
+	return fmt.Sprintf("%s.%s.%s.svc.%s", InstancePodName(name, index), serviceName, namespace, ClusterDomain())
 }
 
 func IsMasterInstance(instance *v1.KDBInstance) bool {

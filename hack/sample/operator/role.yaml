@@ -114,6 +114,7 @@ rules:
 - apiGroups:
     - kdb.com
   resources:
+    - kdbclusters
     - kdbinstances
   verbs:
     - create
@@ -122,6 +123,12 @@ rules:
     - list
     - patch
     - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - kdbclusters/status
+  verbs:
+    - patch
 - apiGroups:
     - rbac.authorization.k8s.io
   resources:

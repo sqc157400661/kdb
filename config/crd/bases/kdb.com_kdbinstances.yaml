@@ -36,6 +36,11 @@ spec:
                   type: string
                 type: object
               deployArch:
+                enum:
+                - Single
+                - Master-Slave
+                - Master-Replica
+                - MGR
                 type: string
               engine:
                 type: string
@@ -947,6 +952,122 @@ spec:
                 - podName
                 - port
                 type: object
+              mysql:
+                properties:
+                  exporter:
+                    properties:
+                      enabled:
+                        type: boolean
+                      env:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              properties:
+                                configMapKeyRef:
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    optional:
+                                      type: boolean
+                                  required:
+                                  - key
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                fieldRef:
+                                  properties:
+                                    apiVersion:
+                                      type: string
+                                    fieldPath:
+                                      type: string
+                                  required:
+                                  - fieldPath
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                resourceFieldRef:
+                                  properties:
+                                    containerName:
+                                      type: string
+                                    divisor:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    resource:
+                                      type: string
+                                  required:
+                                  - resource
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                secretKeyRef:
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    optional:
+                                      type: boolean
+                                  required:
+                                  - key
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                              type: object
+                          required:
+                          - name
+                          type: object
+                        type: array
+                      image:
+                        type: string
+                      resources:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  mgr:
+                    properties:
+                      bootstrapOrdinal:
+                        default: 0
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      groupName:
+                        pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+                        type: string
+                      groupPort:
+                        default: 33061
+                        format: int32
+                        maximum: 65535
+                        minimum: 1024
+                        type: integer
+                      mode:
+                        default: SinglePrimary
+                        enum:
+                        - SinglePrimary
+                        - MultiPrimary
+                        type: string
+                    type: object
+                type: object
               port:
                 default: 5432
                 format: int32
@@ -962,6 +1083,27 @@ spec:
             required:
             - engineVersion
             type: object
+            x-kubernetes-validations:
+            - message: when deployArch is Master-Slave, spec.instance.replicas must
+                be 2
+              rule: self.deployArch != 'Master-Slave' || (has(self.instance) && has(self.instance.replicas)
+                && self.instance.replicas == 2)
+            - message: when deployArch is Master-Replica, spec.instance.replicas must
+                be greater than or equal to 2
+              rule: self.deployArch != 'Master-Replica' || (has(self.instance) &&
+                has(self.instance.replicas) && self.instance.replicas >= 2)
+            - message: when deployArch is MGR, spec.instance.replicas must be greater
+                than or equal to 3
+              rule: self.deployArch != 'MGR' || (has(self.instance) && has(self.instance.replicas)
+                && self.instance.replicas >= 3)
+            - message: when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must
+                be less than spec.instance.replicas
+              rule: self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr)
+                || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal
+                < self.instance.replicas
+            - message: spec.mysql.mgr.groupPort must not equal spec.port
+              rule: '!has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.groupPort)
+                || !has(self.port) || self.mysql.mgr.groupPort != self.port'
           status:
             properties:
               conditions:

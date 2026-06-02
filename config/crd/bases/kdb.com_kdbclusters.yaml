@@ -32,6 +32,10 @@ spec:
           spec:
             properties:
               deployArch:
+                enum:
+                - Master-Slave
+                - Master-Replica
+                - MGR
                 type: string
               engine:
                 type: string
@@ -491,9 +495,307 @@ spec:
                 - podName
                 - port
                 type: object
+              mysql:
+                properties:
+                  exporter:
+                    properties:
+                      enabled:
+                        type: boolean
+                      env:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            value:
+                              type: string
+                            valueFrom:
+                              properties:
+                                configMapKeyRef:
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    optional:
+                                      type: boolean
+                                  required:
+                                  - key
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                fieldRef:
+                                  properties:
+                                    apiVersion:
+                                      type: string
+                                    fieldPath:
+                                      type: string
+                                  required:
+                                  - fieldPath
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                resourceFieldRef:
+                                  properties:
+                                    containerName:
+                                      type: string
+                                    divisor:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    resource:
+                                      type: string
+                                  required:
+                                  - resource
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                secretKeyRef:
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    optional:
+                                      type: boolean
+                                  required:
+                                  - key
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                              type: object
+                          required:
+                          - name
+                          type: object
+                        type: array
+                      image:
+                        type: string
+                      resources:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  mgr:
+                    properties:
+                      bootstrapOrdinal:
+                        default: 0
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      groupName:
+                        pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+                        type: string
+                      groupPort:
+                        default: 33061
+                        format: int32
+                        maximum: 65535
+                        minimum: 1024
+                        type: integer
+                      mode:
+                        default: SinglePrimary
+                        enum:
+                        - SinglePrimary
+                        - MultiPrimary
+                        type: string
+                    type: object
+                type: object
+              proxy:
+                properties:
+                  config:
+                    properties:
+                      configMapRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        type: object
+                      inline:
+                        properties:
+                          backends:
+                            properties:
+                              discovery:
+                                default: Operator
+                                enum:
+                                - Operator
+                                - Static
+                                - ServiceDiscovery
+                                type: string
+                              healthCheck:
+                                properties:
+                                  enabled:
+                                    default: true
+                                    type: boolean
+                                  intervalSeconds:
+                                    default: 10
+                                    format: int32
+                                    minimum: 1
+                                    type: integer
+                                type: object
+                            type: object
+                          extensions:
+                            additionalProperties:
+                              x-kubernetes-preserve-unknown-fields: true
+                            type: object
+                          parameters:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          traffic:
+                            properties:
+                              loadBalance:
+                                properties:
+                                  algorithm:
+                                    default: RoundRobin
+                                    enum:
+                                    - RoundRobin
+                                    - LeastConn
+                                    - Random
+                                    - Weighted
+                                    type: string
+                                type: object
+                              readWriteSplit:
+                                properties:
+                                  enabled:
+                                    default: false
+                                    type: boolean
+                                type: object
+                            type: object
+                          users:
+                            items:
+                              properties:
+                                defaultRoute:
+                                  type: string
+                                passwordSecretRef:
+                                  properties:
+                                    key:
+                                      type: string
+                                    name:
+                                      type: string
+                                    optional:
+                                      type: boolean
+                                  required:
+                                  - key
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                username:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      source:
+                        default: Inline
+                        enum:
+                        - Inline
+                        - ConfigMapRef
+                        type: string
+                    type: object
+                  enabled:
+                    default: false
+                    type: boolean
+                  image:
+                    type: string
+                  mgrImage:
+                    type: string
+                  replicas:
+                    default: 2
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    properties:
+                      mgr:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                      proxysql:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  service:
+                    properties:
+                      adminPort:
+                        default: 6032
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      mysqlPort:
+                        default: 6033
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      type:
+                        default: ClusterIP
+                        type: string
+                    type: object
+                  type:
+                    default: ProxySQL
+                    enum:
+                    - ProxySQL
+                    type: string
+                type: object
             required:
             - engineVersion
             type: object
+            x-kubernetes-validations:
+            - message: when deployArch is Master-Slave, len(spec.instances) must be
+                2
+              rule: self.deployArch != 'Master-Slave' || size(self.instances) == 2
+            - message: when deployArch is Master-Replica, len(spec.instances) must
+                be greater than or equal to 2
+              rule: self.deployArch != 'Master-Replica' || size(self.instances) >=
+                2
+            - message: when deployArch is MGR, len(spec.instances) must be greater
+                than or equal to 3
+              rule: self.deployArch != 'MGR' || size(self.instances) >= 3
+            - message: when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must
+                be less than len(spec.instances)
+              rule: self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr)
+                || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal
+                < size(self.instances)
           status:
             properties:
               conditions:
@@ -537,6 +839,51 @@ spec:
                 x-kubernetes-list-type: map
               message:
                 type: string
+              proxy:
+                properties:
+                  backends:
+                    items:
+                      properties:
+                        host:
+                          type: string
+                        port:
+                          format: int32
+                          type: integer
+                        role:
+                          type: string
+                        status:
+                          type: string
+                      type: object
+                    type: array
+                  configMapName:
+                    type: string
+                  configVersion:
+                    type: string
+                  enabled:
+                    type: boolean
+                  hostgroups:
+                    properties:
+                      reader:
+                        format: int32
+                        type: integer
+                      writer:
+                        format: int32
+                        type: integer
+                    type: object
+                  mysqlPort:
+                    format: int32
+                    type: integer
+                  readyReplicas:
+                    format: int32
+                    type: integer
+                  replicas:
+                    format: int32
+                    type: integer
+                  serviceName:
+                    type: string
+                  type:
+                    type: string
+                type: object
               readyNum:
                 format: int32
                 type: integer

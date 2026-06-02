@@ -201,5 +201,13 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBInstance controller")
 		return
 	}
+	if err = (&controller.KDBClusterReconciler{
+		ReconcileHelper: helper,
+		Owner:           controller.KDBClusterControllerName,
+		Recorder:        mgr.GetEventRecorderFor(controller.KDBClusterControllerName),
+	}).SetupWithManager(mgr); err != nil {
+		err = errors.Wrap(err, "unable to create KDBCluster controller")
+		return
+	}
 	return
 }

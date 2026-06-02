@@ -23,6 +23,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"
 	"github.com/sqc157400661/kdb/internal/rbac"
+	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
@@ -37,6 +38,7 @@ type InstanceStepper interface {
 	CheckAndSetFinalizer() kube.BindFunc
 	HandleDelete() kube.BindFunc
 	SetGlobalConfig() kube.BindFunc
+	EnsureLeader() kube.BindFunc
 	SetInstanceConfig() kube.BindFunc
 	SetRbac() kube.BindFunc
 	InitObservedRunner() kube.BindFunc
@@ -280,6 +282,33 @@ func (s *InstanceStepManager) SetGlobalConfig() kube.BindFunc {
 		})
 }
 
+// EnsureLeader initializes spec.leader only for standalone KDBInstance usage.
+//
+// Cluster-managed instances are skipped because cluster reconciliation owns leader semantics.
+// For standalone instances, the default is derived from topology to keep behavior consistent.
+func (s *InstanceStepManager) EnsureLeader() kube.BindFunc {
+	return s.StepBinder(
+		"EnsureLeader",
+		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			instance := rc.GetInstance()
+			if instance == nil {
+				return flow.Pass()
+			}
+			plan, err := topology.ResolveInstancePlan(instance)
+			if err != nil {
+				return flow.Error(err, "resolve topology plan err")
+			}
+			if naming.KDBInstanceClusterID(instance) != "" {
+				return flow.Pass()
+			}
+			if instance.Spec.Leader.PodName != "" || instance.Spec.Leader.Host != "" {
+				return flow.Pass()
+			}
+			instance.Spec.Leader = topology.LeaderForInstance(instance, plan, 0)
+			return flow.Retry("leader initialized")
+		})
+}
+
 func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 	return s.StepBinder(
 		"SetInstanceConfig",
@@ -409,7 +438,36 @@ func (s *InstanceStepManager) SetService() kube.BindFunc {
 	return s.StepBinder(
 		"SetService",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			return reconcile.Result{}, nil
+			instance := rc.GetInstance()
+			service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+				Namespace: instance.Namespace,
+				Name:      naming.InstancePodServiceName(instance.Name),
+			}}
+			service.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
+			if err := errors.WithStack(rc.SetControllerReference(service)); err != nil {
+				return flow.Error(err, "set service controller ref err")
+			}
+
+			service.Annotations = instance.Annotations
+			service.Labels = naming.Merge(instance.Labels, map[string]string{
+				naming.LabelInstance: instance.Name,
+			})
+			service.Spec = corev1.ServiceSpec{
+				ClusterIP: corev1.ClusterIPNone,
+				Selector: map[string]string{
+					naming.LabelInstance: instance.Name,
+				},
+				Ports: []corev1.ServicePort{{
+					Name: naming.PortDatabase,
+					Port: naming.KDBInstanceMasterPort(instance),
+				}},
+			}
+
+			if err := errors.WithStack(rc.Apply(service)); err != nil {
+				return flow.Error(err, "apply instance pod headless service err")
+			}
+			rc.SetInstancePodService(service)
+			return flow.Pass()
 		})
 }
 

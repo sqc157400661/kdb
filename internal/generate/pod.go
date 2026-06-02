@@ -1,6 +1,8 @@
 package generate
 
 import (
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/security"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
@@ -152,13 +154,13 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 	return
 }
 
-func instanceContainer(rc *context.InstanceContext, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {
+func instanceContainer(rc *context.InstanceContext, statefulSetName string, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {
 	instance := rc.GetInstance()
 	instanceSet := naming.InstanceSetSpec(instance)
 	containers = append(containers, corev1.Container{
 		Name:      naming.ContainerDatabase,
 		Command:   instanceSet.MainContainer.Command,
-		Env:       append(RequestEnvironment(instance), instanceSet.MainContainer.Env...),
+		Env:       append(RequestEnvironment(instance, statefulSetName), instanceSet.MainContainer.Env...),
 		Args:      instanceSet.MainContainer.Args,
 		Image:     instanceSet.MainContainer.Image,
 		Resources: instanceSet.MainContainer.Resources,
@@ -173,25 +175,82 @@ func instanceContainer(rc *context.InstanceContext, mounts []corev1.VolumeMount)
 		VolumeMounts:    mounts,
 	})
 	if instanceSet.SidecarContainer.Image == "" {
+		if mysqlExporterEnabled(instance) {
+			containers = append(containers, mysqlExporterContainer(instance, instanceSet, mounts))
+		}
 		return
 	}
 	containers = append(containers, corev1.Container{
 		Name:         naming.ContainerSidecar,
 		Command:      instanceSet.SidecarContainer.Command,
-		Env:          append(RequestEnvironment(instance), instanceSet.SidecarContainer.Env...),
+		Env:          append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...),
 		Args:         instanceSet.SidecarContainer.Args,
 		Image:        instanceSet.SidecarContainer.Image,
 		Resources:    instanceSet.SidecarContainer.Resources,
 		VolumeMounts: mounts,
 	})
+	if mysqlExporterEnabled(instance) {
+		containers = append(containers, mysqlExporterContainer(instance, instanceSet, mounts))
+	}
 	return
+}
+
+func mysqlExporterEnabled(instance *v1.KDBInstance) bool {
+	return instance != nil &&
+		instance.Spec.Engine == naming.MySQLEngine &&
+		instance.Spec.MySQL != nil &&
+		instance.Spec.MySQL.Exporter != nil &&
+		instance.Spec.MySQL.Exporter.Enabled
+}
+
+func mysqlExporterContainer(instance *v1.KDBInstance, instanceSet shared.InstanceSetSpec, mounts []corev1.VolumeMount) corev1.Container {
+	monitor := instanceSet.MonitorContainer
+	exporter := instance.Spec.MySQL.Exporter
+	if exporter.Image != "" {
+		monitor.Image = exporter.Image
+	}
+	if len(exporter.Env) > 0 {
+		monitor.Env = append(monitor.Env, exporter.Env...)
+	}
+	if !isEmptyResourceRequirements(exporter.Resources) {
+		monitor.Resources = exporter.Resources
+	}
+	return corev1.Container{
+		Name:      naming.ContainerMySQLExporter,
+		Command:   monitor.Command,
+		Args:      monitor.Args,
+		Env:       monitor.Env,
+		Image:     monitor.Image,
+		Resources: monitor.Resources,
+		Ports: []corev1.ContainerPort{{
+			Name:          naming.PortMySQLMetrics,
+			ContainerPort: 9104,
+			Protocol:      corev1.ProtocolTCP,
+		}},
+		SecurityContext: security.InitRestrictedSecurityContext(),
+		VolumeMounts:    mysqlExporterVolumeMounts(mounts),
+	}
+}
+
+func mysqlExporterVolumeMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
+	for _, mount := range mounts {
+		if mount.Name == "tmp" {
+			return []corev1.VolumeMount{mount}
+		}
+	}
+	return nil
+}
+
+func isEmptyResourceRequirements(resources corev1.ResourceRequirements) bool {
+	return len(resources.Limits) == 0 &&
+		len(resources.Requests) == 0
 }
 
 func InstancePodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	podTmpl := sts.Spec.Template
 	mounts, vols := instanceVolsIntent(rc, sts)
 	podTmpl.Spec.Volumes = vols
-	initContainer, containers := instanceContainer(rc, mounts)
+	initContainer, containers := instanceContainer(rc, sts.Name, mounts)
 	//for _, c := range containers {
 	//	decorateWithDefaultProbes(&c)
 	//}

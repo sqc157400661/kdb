@@ -12,6 +12,8 @@ const (
 	ContainerDatabase = "database"
 
 	ContainerSidecar = "mgr"
+
+	ContainerMySQLExporter = "mysql-exporter"
 	//
 	//ContainerInit = "init"
 	//
@@ -21,4 +23,6 @@ const (
 const (
 	// PortDatabase is the name of a port that connects to kdb instance.
 	PortDatabase = "database"
+
+	PortMySQLMetrics = "mysql-metrics"
 )

@@ -31,6 +31,11 @@ const (
 )
 
 // KDBInstanceSpec defines the desired state of KDBInstance
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'Master-Slave' || (has(self.instance) && has(self.instance.replicas) && self.instance.replicas == 2)",message="when deployArch is Master-Slave, spec.instance.replicas must be 2"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'Master-Replica' || (has(self.instance) && has(self.instance.replicas) && self.instance.replicas >= 2)",message="when deployArch is Master-Replica, spec.instance.replicas must be greater than or equal to 2"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || (has(self.instance) && has(self.instance.replicas) && self.instance.replicas >= 3)",message="when deployArch is MGR, spec.instance.replicas must be greater than or equal to 3"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal < self.instance.replicas",message="when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must be less than spec.instance.replicas"
+// +kubebuilder:validation:XValidation:rule="!has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.groupPort) || !has(self.port) || self.mysql.mgr.groupPort != self.port",message="spec.mysql.mgr.groupPort must not equal spec.port"
 type KDBInstanceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -49,6 +54,7 @@ type KDBInstanceSpec struct {
 
 	// DeployArch Deployment Architecture
 	// +optional
+	// +kubebuilder:validation:Enum=Single;Master-Slave;Master-Replica;MGR
 	DeployArch string `json:"deployArch"`
 
 	// Engine supports MySQL, PG, and so on
@@ -62,6 +68,10 @@ type KDBInstanceSpec struct {
 	// EngineFullVersion the full version of KDB engine installed in the image
 	// +optional
 	EngineFullVersion string `json:"engineFullVersion"`
+
+	// MySQL contains MySQL engine specific settings.
+	// +optional
+	MySQL *MySQLSpec `json:"mysql,omitempty"`
 
 	// Whether or not the kdb instance should be stopped.
 	// set statefulset replicas = 0 to deleting pod, but keep pvc

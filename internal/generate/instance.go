@@ -1,16 +1,22 @@
 package generate
 
 import (
+	"fmt"
 	"github.com/sqc157400661/util"
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
-func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc, masters []*v1.HostInfo) error {
+// InitKDBInstance materializes a KDBInstance spec from cluster intent and instance descriptor.
+//
+// Leader/upstream is derived directly from ClusterPlan + current instance identity, so no
+// secondary leader selection is performed in generate layer.
+func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc *v1.InstanceDesc) error {
 	cluster := rc.GetCluster()
 	globalConfig := rc.GetGlobalConfig()
 	instance.Labels = naming.Merge(instance.GetLabels(), cluster.GetLabels())
@@ -28,11 +34,28 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	if err != nil {
 		return err
 	}
-	var master v1.HostInfo
-	for _, m := range masters {
-		if m.PodName != naming.InstancePodName(instance.Name, 0) {
-			master = *m
+	clusterPlan, err := topology.ResolveClusterPlan(cluster)
+	if err != nil {
+		return err
+	}
+	selfIndex := -1
+	for i := range cluster.Spec.Instances {
+		if cluster.Spec.Instances[i].Name == desc.Name {
+			selfIndex = i
+			break
 		}
+	}
+	if selfIndex < 0 {
+		return fmt.Errorf("instance %s not found in cluster spec", desc.Name)
+	}
+	leaderIndex := clusterPlan.PrimaryIndex
+	if clusterPlan.DeployArch == naming.MySQLMasterSlaveDeployArch {
+		if selfIndex == clusterPlan.PrimaryIndex {
+			leaderIndex = clusterPlan.PeerIndex
+		}
+	}
+	master := v1.HostInfo{
+		PodName: naming.InstancePodName(cluster.Spec.Instances[leaderIndex].Name, 0),
 	}
 	instanceSet := v1.KDBInstanceSpec{
 		InstanceSet: shared.InstanceSetSpec{
@@ -73,7 +96,9 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 		Port:              util.Int32(naming.GetPortByEngine(cluster.Spec.Engine)),
 		DeployArch:        cluster.Spec.DeployArch,
 		Engine:            cluster.Spec.Engine,
+		EngineVersion:     cluster.Spec.EngineVersion,
 		EngineFullVersion: desc.EngineFullVersion,
+		MySQL:             cloneClusterMySQLSpec(cluster),
 		Config:            globalConfig.GetDBConfig(cluster.Spec.Engine, desc.EngineFullVersion),
 	}
 	if !desc.LogSize.IsZero() {
@@ -84,4 +109,27 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	}
 	instance.Spec = instanceSet
 	return nil
+}
+
+func cloneClusterMySQLSpec(cluster *v1.KDBCluster) *v1.MySQLSpec {
+	if cluster == nil || cluster.Spec.MySQL == nil {
+		return nil
+	}
+	out := &v1.MySQLSpec{}
+	if cluster.Spec.MySQL.MGR != nil {
+		mgr := *cluster.Spec.MySQL.MGR
+		if cluster.Spec.DeployArch == naming.MySQLMGRDeployArch && mgr.GroupName == "" {
+			mgr.GroupName = topology.StableMGRGroupName(cluster.Namespace, cluster.Name)
+		}
+		out.MGR = &mgr
+	}
+	if cluster.Spec.MySQL.Exporter != nil {
+		exporter := *cluster.Spec.MySQL.Exporter
+		if cluster.Spec.MySQL.Exporter.Env != nil {
+			exporter.Env = append([]corev1.EnvVar(nil), cluster.Spec.MySQL.Exporter.Env...)
+		}
+		exporter.Resources = *cluster.Spec.MySQL.Exporter.Resources.DeepCopy()
+		out.Exporter = &exporter
+	}
+	return out
 }

@@ -7,6 +7,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/config"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/topology"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql"
@@ -65,6 +66,9 @@ func (r *KDBInstanceReconciler) Reconcile(
 	if kdbInstance == nil || kdbInstance.Name == "" {
 		return reconcile.Result{}, nil
 	}
+	if err = topology.ValidateInstanceSpec(kdbInstance); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	// if the reconcile has been stopped,skip it
 	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
@@ -85,6 +89,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 	kube.AbortWhen(rc.IsDeleted(), "instance is deleted, skipped")(task)
 	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
 	stepManager.SetGlobalConfig()(task)
+	stepManager.EnsureLeader()(task)
 	stepManager.SetInstanceConfig()(task)
 	stepManager.SetRbac()(task)
 	stepManager.SetService()(task)

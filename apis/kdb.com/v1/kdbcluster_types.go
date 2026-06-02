@@ -83,6 +83,10 @@ type InstanceDesc struct {
 }
 
 // KDBClusterSpec defines the desired state of KDBCluster
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'Master-Slave' || size(self.instances) == 2",message="when deployArch is Master-Slave, len(spec.instances) must be 2"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'Master-Replica' || size(self.instances) >= 2",message="when deployArch is Master-Replica, len(spec.instances) must be greater than or equal to 2"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || size(self.instances) >= 3",message="when deployArch is MGR, len(spec.instances) must be greater than or equal to 3"
+// +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal < size(self.instances)",message="when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must be less than len(spec.instances)"
 type KDBClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -96,6 +100,7 @@ type KDBClusterSpec struct {
 
 	// DeployArch Deployment Architecture
 	// +optional
+	// +kubebuilder:validation:Enum=Master-Slave;Master-Replica;MGR
 	DeployArch string `json:"deployArch"`
 
 	// Engine supports MySQL, PG, and so on
@@ -105,6 +110,14 @@ type KDBClusterSpec struct {
 	// EngineVersion the major version of KDB engine installed in the image
 	// +kubebuilder:validation:Required
 	EngineVersion string `json:"engineVersion"`
+
+	// MySQL contains MySQL engine specific settings.
+	// +optional
+	MySQL *MySQLSpec `json:"mysql,omitempty"`
+
+	// Proxy declares the cluster level database proxy layer.
+	// +optional
+	Proxy *KDBProxySpec `json:"proxy,omitempty"`
 }
 
 // KDBClusterStatus defines the observed state of KDBCluster
@@ -131,6 +144,10 @@ type KDBClusterStatus struct {
 	// +listMapKey=type
 	// +operator-sdk:csv:customresourcedefinitions:type=status,xDescriptors={"urn:alm:descriptor:io.kubernetes.conditions"}
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Proxy contains observed state of the cluster proxy layer.
+	// +optional
+	Proxy *KDBProxyStatus `json:"proxy,omitempty"`
 }
 
 // +genclient

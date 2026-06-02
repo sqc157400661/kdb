@@ -1,0 +1,67 @@
+apiVersion: kdb.com/v1
+kind: KDBCluster
+metadata:
+  name: kdb-proxy-demo
+  namespace: kdb
+  labels:
+    app: kdb
+spec:
+  engine: mysql
+  engineVersion: "8.0"
+  deployArch: Master-Replica
+  instances:
+    - name: mysql1
+      replicas: 1
+      size: 1Gi
+      logSize: 1Gi
+      engineFullVersion: "8.0.37"
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "500Mi"
+        limits:
+          cpu: "0.5"
+          memory: "500Mi"
+    - name: mysql2
+      replicas: 1
+      size: 1Gi
+      logSize: 1Gi
+      engineFullVersion: "8.0.37"
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: "500Mi"
+        limits:
+          cpu: "0.5"
+          memory: "500Mi"
+  proxy:
+    enabled: true
+    type: ProxySQL
+    replicas: 2
+    image: proxysql/proxysql:3.0.2
+    mgrImage: kdb-sidecar:latest
+    config:
+      source: Inline
+      inline:
+        traffic:
+          readWriteSplit:
+            enabled: false
+          loadBalance:
+            algorithm: RoundRobin
+        backends:
+          discovery: Operator
+          healthCheck:
+            enabled: true
+            intervalSeconds: 10
+        users:
+          - username: app
+            passwordSecretRef:
+              name: demo-app-user
+              key: password
+            defaultRoute: writer
+        parameters:
+          max_connections: "2048"
+    service:
+      type: ClusterIP
+      mysqlPort: 6033
+      adminPort: 6032

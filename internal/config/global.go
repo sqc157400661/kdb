@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/util"
 )
@@ -12,9 +14,16 @@ type DBConfig struct {
 	ReplUser     string `yaml:"repl_user" json:"repl_user"`
 	ReplPassword string `yaml:"repl_password" json:"repl_password"`
 }
+
+const (
+	HostResolveModeDNS = "dns"
+	HostResolveModeIP  = "ip"
+)
+
 type GlobalConfig struct {
 	DB                  DBConfig       `json:"db" yaml:"db"`
 	MySQLInstanceConfig InstanceConfig `json:"mysql_instance_config" yaml:"mysql_instance_config"`
+	HostResolveMode     string         `json:"host_resolve_mode" yaml:"host_resolve_mode"`
 }
 
 type InstanceImage struct {
@@ -30,6 +39,20 @@ type InstanceConfig struct {
 	VersionImagesMap map[FullVersion]InstanceImage     `json:"version_images_map" yaml:"version_images_map"`
 	GlobalConfig     map[string]string                 `json:"global_config" yaml:"global_config"`
 	VersionConfig    map[FullVersion]map[string]string `json:"version_config" yaml:"version_config"`
+}
+
+func (c *GlobalConfig) GetHostResolveMode() string {
+	if c == nil {
+		return HostResolveModeDNS
+	}
+	switch strings.ToLower(c.HostResolveMode) {
+	case HostResolveModeIP:
+		return HostResolveModeIP
+	case HostResolveModeDNS:
+		fallthrough
+	default:
+		return HostResolveModeDNS
+	}
 }
 
 func (c *GlobalConfig) GetDBConfig(engine string, fullVersion string) map[string]string {

@@ -9,17 +9,27 @@ init_users:
   - username: _monitor_user
     password: {{.RootPassword}}
     host: localhost
-    privileges: [SELECT,PROCESSLIST]
+    privileges: [SELECT,PROCESS]
   - username: {{.ReplUser}}
     password: {{.ReplPassword}}
-    host: localhost
+    host: '%'
     privileges: [REPLICATION CLIENT, REPLICATION SLAVE]
-replication:
-  pod_name: {{.MasterPodName}}
-  port: {{.MasterPort}}
-  host: {{.MasterHost}}
-  repl_user: {{.ReplUser}}
-  repl_password: {{.ReplPassword}}
+{{if .Replications}}
+replications:
+{{.Replications}}
+{{else}}
+replications: []
+{{end}}
+deploy_arch: {{.DeployArch}}
+mgr:
+  enabled: {{.MGREnabled}}
+  mode: {{.MGRMode}}
+  group_name: {{.MGRGroupName}}
+  local_address: {{.MGRLocalAddress}}
+  seeds: {{.MGRSeeds}}
+  bootstrap: {{.MGRBootstrap}}
+  bootstrap_ordinal: {{.MGRBootstrapOrdinal}}
+  group_port: {{.MGRGroupPort}}
 backup:
   crontab:
   oss: {}

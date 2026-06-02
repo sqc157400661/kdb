@@ -41,6 +41,8 @@ max_binlog_size=268435456 #256MiB
 #relay log
 skip_replica_start=ON
 relay_log=relay-bin
+# health_check 是本机心跳表，不需要从上游复制
+replicate-ignore-table=mysql.health_check
 
 # query log
 # 通用查询日志文件路径，记录所有执行的查询语句，用于调试和审计，但会消耗较多磁盘空间，一般不开启或仅在调试时开启

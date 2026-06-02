@@ -6,8 +6,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/security"
+	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
@@ -17,13 +19,17 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	sts.Annotations = naming.Merge(
 		instance.Annotations,
 		instanceSet.Metadata.GetAnnotationsOrNil())
+	labels := map[string]string{
+		naming.LabelInstanceSet: sts.Name,
+		naming.LabelInstance:    instance.Name,
+	}
+	if role := instanceSetRole(instance, sts.Name); role != "" {
+		labels[naming.LabelRole] = role
+	}
 	sts.Labels = naming.Merge(
 		instance.Labels,
 		instanceSet.Metadata.GetLabelsOrNil(),
-		map[string]string{
-			naming.LabelInstanceSet: sts.Name,
-			naming.LabelInstance:    instance.Name,
-		})
+		labels)
 	sts.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{
 			naming.LabelInstanceSet: sts.Name,
@@ -37,10 +43,7 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	sts.Spec.Template.Labels = naming.Merge(
 		instance.Labels,
 		instanceSet.Metadata.GetLabelsOrNil(),
-		map[string]string{
-			naming.LabelInstanceSet: sts.Name,
-			naming.LabelInstance:    instance.Name,
-		})
+		labels)
 
 	// Don't clutter the namespace with extra ControllerRevisions.
 	// The "controller-revision-hash" label still exists on the Pod.
@@ -49,7 +52,11 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	// Give the Pod a stable DNS record based on its name.
 	// - https://docs.k8s.io/concepts/workloads/controllers/statefulset/#stable-network-id
 	// - https://docs.k8s.io/concepts/services-networking/dns-pod-service/#pods
-	//sts.Spec.ServiceName = rc.GetClusterPodService().Name
+	if service := rc.GetInstancePodService(); service != nil {
+		sts.Spec.ServiceName = service.Name
+	} else {
+		sts.Spec.ServiceName = naming.InstancePodServiceName(instance.Name)
+	}
 
 	// Disable StatefulSet's "RollingUpdate" strategy. The rolloutInstances
 	// method considers Pods across the entire Kdb instance and deletes
@@ -90,4 +97,38 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 
 	sts.Spec.Template.Spec.SecurityContext = security.PodSecurityContext(instance)
 
+}
+
+// instanceSetRole maps the topology role of a StatefulSet ordinal into legacy label roles.
+//
+// It keeps compatibility with existing master/replica labels while deriving decisions from
+// the unified topology plan instead of ad-hoc deployArch branches.
+func instanceSetRole(instance *v1.KDBInstance, setName string) string {
+	plan, err := topology.ResolveInstancePlan(instance)
+	if err != nil {
+		return ""
+	}
+	idx := naming.InstanceStsNum(instance, setName)
+	role, ok := plan.Roles[idx]
+	if !ok {
+		return ""
+	}
+	switch role {
+	case topology.RolePrimary:
+		return naming.MasterRole
+	case topology.RoleReplica:
+		return naming.ReplicaRole
+	case topology.RolePeer:
+		if idx == 0 {
+			return naming.MasterRole
+		}
+		return naming.ReplicaRole
+	case topology.RoleMGRNode:
+		if idx == plan.Primary {
+			return naming.MasterRole
+		}
+		return naming.ReplicaRole
+	default:
+		return ""
+	}
 }

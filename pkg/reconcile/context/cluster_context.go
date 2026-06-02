@@ -7,8 +7,10 @@ import (
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type ClusterContext struct {
@@ -147,4 +149,18 @@ func (rc *ClusterContext) DeleteFinalizer(key string) []string {
 	finalizers := sets.NewString(rc.cluster.Finalizers...)
 	finalizers.Delete(key)
 	return finalizers.List()
+}
+
+// PatchKDBClusterStatus updates the cluster status subresource when it changes.
+func (rc *ClusterContext) PatchKDBClusterStatus() error {
+	if !equality.Semantic.DeepEqual(rc.oldCluster.Status, rc.cluster.Status) {
+		return errors.WithStack(rc.Client().Status().Patch(
+			rc.Context(), rc.cluster, client.MergeFrom(rc.oldCluster), rc.Owner()))
+	}
+	return nil
+}
+
+// SetControllerReference sets cluster as the controller owner of controlled.
+func (rc *ClusterContext) SetControllerReference(controlled client.Object) error {
+	return controllerutil.SetControllerReference(rc.cluster, controlled, rc.Client().Scheme())
 }

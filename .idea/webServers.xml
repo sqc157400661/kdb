@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="94f051a9-5d5c-45b7-ab93-6c93fd2b18ed" name="kdb">
+        <fileTransfer accessType="SFTP" host="10.37.193.250" port="22" sshConfigId="1c6b723f-00d9-4a60-ae95-a86aa0993695" sshConfig="shiqingchuang@10.37.193.250:22 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

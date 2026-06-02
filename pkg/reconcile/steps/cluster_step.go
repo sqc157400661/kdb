@@ -1,7 +1,6 @@
 package steps
 
 import (
-	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
@@ -9,6 +8,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/generate"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sort"
 )
 
 type Condition func(rc *context.ClusterContext, log logr.Logger) (bool, error)
@@ -31,6 +30,8 @@ type ClusterStepper interface {
 	SetInstanceConfig() kube.BindFunc
 	ScaleUp() kube.BindFunc
 	ScaleDown() kube.BindFunc
+	ReconcileProxySQL() kube.BindFunc
+	PatchClusterStatus() kube.BindFunc
 }
 
 type ClusterStepManager struct {
@@ -162,6 +163,10 @@ func (s *ClusterStepManager) InitObservedInstance() kube.BindFunc {
 		})
 }
 
+// ScaleUp reconciles missing KDBInstance resources to match cluster.Spec.Instances.
+//
+// Before generation it validates cluster topology via ResolveClusterPlan to fail fast on
+// invalid deployArch/replica combinations and keep behavior aligned with topology rules.
 func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleUp",
@@ -173,9 +178,8 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 			for _, instance := range instances {
 				existInstanceNames.Insert(instance.Name)
 			}
-			masters, err := picMasterInstances(rc)
-			if err != nil {
-				return flow.Error(err, "picMasterInstances err")
+			if _, err := topology.ResolveClusterPlan(cluster); err != nil {
+				return flow.Error(err, "resolve cluster topology err")
 			}
 			for _, ins := range cluster.Spec.Instances {
 				if !existInstanceNames.Has(ins.Name) {
@@ -184,8 +188,7 @@ func (s *ClusterStepManager) ScaleUp() kube.BindFunc {
 						Name:      ins.Name,
 					}})
 				}
-				err = generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins, masters)
-				if err != nil {
+				if err := generate.InitKDBInstance(rc, observedCluster.GetInstanceByName(ins.Name), &ins); err != nil {
 					return flow.Error(err, "reconcileInstance err")
 				}
 			}
@@ -229,77 +232,4 @@ func getInsNamesNeedToKeep(rc *context.ClusterContext) sets.String {
 	}
 	// TODO: 如果Cluster层先删除了Master如何处理？
 	return namesToKeep
-}
-
-func picMasterInstances(rc *context.ClusterContext) (masters []*v1.HostInfo, err error) {
-	cluster := rc.GetCluster()
-	if !naming.IsMasterSlaveCluster(cluster) {
-		return
-	}
-	if cluster.Spec.DeployArch == naming.MySQLMasterReplicaDeployArch {
-		return picMasterReplicaMasters(&cluster.Spec)
-	}
-	if cluster.Spec.DeployArch == naming.MySQLMasterSlaveDeployArch {
-		return picMasterSlaveMasters(&cluster.Spec)
-	}
-	return
-}
-
-// picMasterReplicaMasters determines the master replicas for a KDBCluster based on the given specification.
-// It validates the Leader.PodName and Instances in the spec, and then returns the appropriate master pod names.
-func picMasterReplicaMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, err error) {
-	// 1. Validate that Leader.PodName must be empty
-	if !naming.IsEmptyLeader(spec.Leader) {
-		return nil, fmt.Errorf("when DeployArch is %s, Leader.PodName must be empty", naming.MySQLMasterReplicaDeployArch)
-	}
-
-	// 2. Validate that the length of Instances must be greater than 1
-	if len(spec.Instances) <= 1 {
-		return nil, fmt.Errorf("when DeployArch is %s, len(Instances) must be greater than 1", naming.MySQLMasterReplicaDeployArch)
-	}
-
-	// 3. If the length of Instances is 2, return the podName slice of Instances
-	if len(spec.Instances) == 2 {
-		for _, instance := range spec.Instances {
-			masters = append(masters, &v1.HostInfo{
-				PodName: naming.InstancePodName(instance.Name, 0),
-			})
-		}
-		return masters, nil
-	}
-
-	// 4. If the length of Instances is greater than 2, return the pod names of the two instances with the largest CPU requirements
-	if len(spec.Instances) > 2 {
-		// Sort Instances based on CPU resource requests
-		sort.Slice(spec.Instances, func(i, j int) bool {
-			cpuI := spec.Instances[i].Resources.Requests[corev1.ResourceCPU]
-			cpuJ := spec.Instances[j].Resources.Requests[corev1.ResourceCPU]
-			return cpuI.Cmp(cpuJ) > 0 // 降序排序
-		})
-
-		// Get the pod names of the two instances with the highest CPU requests
-		for i := 0; i < 2; i++ {
-			masters = append(masters, &v1.HostInfo{
-				PodName: naming.InstancePodName(spec.Instances[i].Name, 0),
-			})
-		}
-	}
-	return
-}
-
-// picMasterSlaveMasters determines the master slaves for a KDBCluster based on the given specification.
-func picMasterSlaveMasters(spec *v1.KDBClusterSpec) (masters []*v1.HostInfo, err error) {
-	if !naming.IsEmptyLeader(spec.Leader) {
-		return []*v1.HostInfo{&spec.Leader}, nil
-	}
-	// Sort Instances based on CPU resource requests
-	sort.Slice(spec.Instances, func(i, j int) bool {
-		cpuI := spec.Instances[i].Resources.Requests[corev1.ResourceCPU]
-		cpuJ := spec.Instances[j].Resources.Requests[corev1.ResourceCPU]
-		return cpuI.Cmp(cpuJ) > 0 // 降序排序
-	})
-	masters = append(masters, &v1.HostInfo{
-		PodName: naming.InstancePodName(spec.Instances[0].Name, 0),
-	})
-	return
 }
