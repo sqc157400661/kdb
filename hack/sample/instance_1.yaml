@@ -26,11 +26,11 @@ spec:
           value: ENV_VAR_VALUE
       resources:
         requests:
-          cpu: "0.5"
-          memory: "500Mi"
+          cpu: "0.1"
+          memory: "256Mi"
         limits:
-          cpu: "0.5"
-          memory: "500Mi"
+          cpu: "0.3"
+          memory: "384Mi"
     sidecarContainer:
       #name: sidecar
       image: kdbdeveloper/mysql-sidecar:v0.0.10
@@ -41,11 +41,11 @@ spec:
           value: ENV_VAR_VALUE
       resources:
         requests:
-          cpu: "0.1"
-          memory: "100Mi"
+          cpu: "0.025"
+          memory: "64Mi"
         limits:
-          cpu: "0.5"
-          memory: "1024Mi"
+          cpu: "0.1"
+          memory: "128Mi"
     dataVolumeClaimSpec:
       storageClass: standard
       size: 1Gi
@@ -69,11 +69,11 @@ spec:
               key: password
       resources:
         requests:
+          cpu: "0.01"
+          memory: "32Mi"
+        limits:
           cpu: "0.05"
           memory: "64Mi"
-        limits:
-          cpu: "0.1"
-          memory: "128Mi"
   shutdown: false
   supplementalGroups:
     - 1000
