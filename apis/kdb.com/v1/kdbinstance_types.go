@@ -73,8 +73,9 @@ type KDBInstanceSpec struct {
 	// +optional
 	MySQL *MySQLSpec `json:"mysql,omitempty"`
 
-	// Whether or not the kdb instance should be stopped.
-	// set statefulset replicas = 0 to deleting pod, but keep pvc
+	// Shutdown requests a logical stop of the KDB instance.
+	// When true, StatefulSet pods are scaled to zero while PVCs and other
+	// persistent resources remain in place for a later start.
 	// +optional
 	Shutdown *bool `json:"shutdown,omitempty"`
 
