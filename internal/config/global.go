@@ -21,9 +21,28 @@ const (
 )
 
 type GlobalConfig struct {
-	DB                  DBConfig       `json:"db" yaml:"db"`
-	MySQLInstanceConfig InstanceConfig `json:"mysql_instance_config" yaml:"mysql_instance_config"`
-	HostResolveMode     string         `json:"host_resolve_mode" yaml:"host_resolve_mode"`
+	DB                  DBConfig              `json:"db" yaml:"db"`
+	MySQLInstanceConfig InstanceConfig        `json:"mysql_instance_config" yaml:"mysql_instance_config"`
+	HostResolveMode     string                `json:"host_resolve_mode" yaml:"host_resolve_mode"`
+	ParameterReport     ParameterReportConfig `json:"parameter_report" yaml:"parameter_report"`
+}
+
+type ParameterReportConfig struct {
+	Enabled         *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	HostFile        string `json:"host_file,omitempty" yaml:"host_file,omitempty"`
+	TokenFile       string `json:"token_file,omitempty" yaml:"token_file,omitempty"`
+	CatalogFile     string `json:"catalog_file,omitempty" yaml:"catalog_file,omitempty"`
+	IntervalSeconds int    `json:"interval_seconds,omitempty" yaml:"interval_seconds,omitempty"`
+	TimeoutSeconds  int    `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+}
+
+type ResolvedParameterReportConfig struct {
+	Enabled         bool
+	HostFile        string
+	TokenFile       string
+	CatalogFile     string
+	IntervalSeconds int
+	TimeoutSeconds  int
 }
 
 type InstanceImage struct {
@@ -53,6 +72,40 @@ func (c *GlobalConfig) GetHostResolveMode() string {
 	default:
 		return HostResolveModeDNS
 	}
+}
+
+func (c *GlobalConfig) GetParameterReportConfig() ResolvedParameterReportConfig {
+	out := ResolvedParameterReportConfig{
+		Enabled:         true,
+		HostFile:        naming.ParameterReportHostPath,
+		TokenFile:       naming.ParameterReportTokenPath,
+		CatalogFile:     naming.ParameterReportCatalogPath,
+		IntervalSeconds: 60,
+		TimeoutSeconds:  10,
+	}
+	if c == nil {
+		return out
+	}
+	cfg := c.ParameterReport
+	if cfg.Enabled != nil {
+		out.Enabled = *cfg.Enabled
+	}
+	if strings.TrimSpace(cfg.HostFile) != "" {
+		out.HostFile = strings.TrimSpace(cfg.HostFile)
+	}
+	if strings.TrimSpace(cfg.TokenFile) != "" {
+		out.TokenFile = strings.TrimSpace(cfg.TokenFile)
+	}
+	if strings.TrimSpace(cfg.CatalogFile) != "" {
+		out.CatalogFile = strings.TrimSpace(cfg.CatalogFile)
+	}
+	if cfg.IntervalSeconds > 0 {
+		out.IntervalSeconds = cfg.IntervalSeconds
+	}
+	if cfg.TimeoutSeconds > 0 {
+		out.TimeoutSeconds = cfg.TimeoutSeconds
+	}
+	return out
 }
 
 func (c *GlobalConfig) GetDBConfig(engine string, fullVersion string) map[string]string {

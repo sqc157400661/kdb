@@ -9,6 +9,36 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+func TestParameterReportSecretProjection(t *testing.T) {
+	projection := parameterReportSecretProjection()
+	if projection.Secret == nil {
+		t.Fatalf("expected secret projection")
+	}
+	if projection.Secret.Name != naming.GlobalConfigSecret {
+		t.Fatalf("unexpected secret name: %s", projection.Secret.Name)
+	}
+	if projection.Secret.Optional == nil || !*projection.Secret.Optional {
+		t.Fatalf("parameter report secret projection should be optional")
+	}
+	want := map[string]string{
+		naming.ParameterReportHostSecretKey:    naming.ParameterReportHostSecretKey,
+		naming.ParameterReportTokenSecretKey:   naming.ParameterReportTokenSecretKey,
+		naming.ParameterReportCatalogSecretKey: naming.ParameterReportCatalogSecretKey,
+	}
+	if len(projection.Secret.Items) != len(want) {
+		t.Fatalf("unexpected projection items: %#v", projection.Secret.Items)
+	}
+	for _, item := range projection.Secret.Items {
+		if want[item.Key] != item.Path {
+			t.Fatalf("unexpected key/path: %#v", item)
+		}
+		delete(want, item.Key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing projection items: %#v", want)
+	}
+}
+
 func TestMySQLExporterEnabled(t *testing.T) {
 	instance := &v1.KDBInstance{}
 	instance.Spec.Engine = naming.MySQLEngine

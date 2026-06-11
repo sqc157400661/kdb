@@ -34,3 +34,10 @@ backup:
   crontab:
   oss: {}
   s3: {}
+parameter_report:
+  enabled: {{.ParameterReportEnabled}}
+  host_file: {{.ParameterReportHostFile}}
+  token_file: {{.ParameterReportTokenFile}}
+  catalog_file: {{.ParameterReportCatalogFile}}
+  interval_seconds: {{.ParameterReportIntervalSeconds}}
+  timeout_seconds: {{.ParameterReportTimeoutSeconds}}
