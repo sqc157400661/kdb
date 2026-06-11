@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
@@ -476,16 +477,12 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 		"ScaleUpInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
 			instance := rc.GetInstance()
-			observedInstances := rc.GetObservedRunner()
-			// Range over instance sets to scale up and ensure that each set has
-			// at least the number of replicas defined in the spec. The set can
-			// have more replicas than defined
+			// Reconcile every desired StatefulSet, including existing sets, so
+			// spec-only changes such as shutdown can update their pod replicas.
 			var runners []*appsv1.StatefulSet
-			existNum := len(observedInstances.List)
-			for existNum < int(*instance.Spec.InstanceSet.Replicas) {
-				next := naming.GenerateInstanceStatefulSetMeta(instance, existNum)
+			for i := 0; i < int(*instance.Spec.InstanceSet.Replicas); i++ {
+				next := naming.GenerateInstanceStatefulSetMeta(instance, i)
 				runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
-				existNum++
 			}
 			var err error
 			for n := range runners {
@@ -527,6 +524,9 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	// want defines the number of replicas we want for each instance set
 	wantNums := *naming.InstanceSetSpec(instance).Replicas
 	namesToKeep := sets.NewString()
+	if instance.Spec.Shutdown != nil && *instance.Spec.Shutdown {
+		return stoppedInstanceStatefulSetNames(instance)
+	}
 	if wantNums > 0 {
 		for _, ins := range observedInstances.List {
 			if len(ins.Pods) > 0 && naming.IsMasterPod(ins.Pods[0]) {
@@ -541,6 +541,17 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 		}
 	}
 	return namesToKeep
+}
+
+func stoppedInstanceStatefulSetNames(instance *v1.KDBInstance) sets.String {
+	names := sets.NewString()
+	if instance == nil || instance.Spec.InstanceSet.Replicas == nil {
+		return names
+	}
+	for i := 0; i < int(*instance.Spec.InstanceSet.Replicas); i++ {
+		names.Insert(naming.InstanceStatefulSetName(instance.Name, i))
+	}
+	return names
 }
 
 // deleteSts will delete all resources related to a single sts

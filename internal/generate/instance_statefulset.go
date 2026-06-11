@@ -72,11 +72,7 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 		sts.Spec.Template.Spec.PriorityClassName = *instanceSet.PriorityClassName
 	}
 
-	if instance.Spec.Shutdown != nil && *instance.Spec.Shutdown {
-		sts.Spec.Replicas = util.Int32(0)
-	} else {
-		sts.Spec.Replicas = util.Int32(1)
-	}
+	sts.Spec.Replicas = instanceStatefulSetReplicas(instance)
 
 	// Restart containers any time they stop, die, are killed, etc.
 	// - https://docs.k8s.io/concepts/workloads/pods/pod-lifecycle/#restart-policy
@@ -97,6 +93,13 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 
 	sts.Spec.Template.Spec.SecurityContext = security.PodSecurityContext(instance)
 
+}
+
+func instanceStatefulSetReplicas(instance *v1.KDBInstance) *int32 {
+	if instance.Spec.Shutdown != nil && *instance.Spec.Shutdown {
+		return util.Int32(0)
+	}
+	return util.Int32(1)
 }
 
 // instanceSetRole maps the topology role of a StatefulSet ordinal into legacy label roles.
