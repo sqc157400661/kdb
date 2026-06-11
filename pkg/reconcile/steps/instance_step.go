@@ -482,6 +482,12 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 			namesToKeep.Insert(ins.Name)
 		}
 	}
+	for _, ins := range observedInstances.List {
+		if namesToKeep.Len() >= int(wantNums) {
+			break
+		}
+		namesToKeep.Insert(ins.Name)
+	}
 	return namesToKeep
 }
 
