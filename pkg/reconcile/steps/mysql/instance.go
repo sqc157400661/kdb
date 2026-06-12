@@ -58,25 +58,32 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			if mgrConfig.Enabled {
 				mgrLocalAddress = topology.BuildMGRLocalAddress(instance, int(mgrConfig.BootstrapOrdinal), mgrConfig.GroupPort)
 			}
+			parameterReport := globalConfig.GetParameterReportConfig()
 			// create config
 			util.StringMap(&instanceConfigMap.Data)
 			configStr, err := util.SafeTemplateFill(config.InstanceConfigTmpl, map[string]any{
-				"RootUser":            globalConfig.DB.RootUser,
-				"RootPassword":        globalConfig.DB.RootPassword,
-				"ReplUser":            globalConfig.DB.ReplUser,
-				"ReplPassword":        globalConfig.DB.ReplPassword,
-				"CurrentVersion":      naming.CurrentConfigVersion(instance),
-				"UpdateVersion":       naming.UpdateConfigVersion(instance),
-				"Replications":        replications,
-				"DeployArch":          naming.DeployArch(instance),
-				"MGREnabled":          mgrConfig.Enabled,
-				"MGRMode":             mgrConfig.Mode,
-				"MGRGroupName":        mgrConfig.GroupName,
-				"MGRLocalAddress":     mgrLocalAddress,
-				"MGRSeeds":            mgrConfig.Seeds,
-				"MGRBootstrap":        mgrConfig.Enabled,
-				"MGRBootstrapOrdinal": mgrConfig.BootstrapOrdinal,
-				"MGRGroupPort":        mgrConfig.GroupPort,
+				"RootUser":                       globalConfig.DB.RootUser,
+				"RootPassword":                   globalConfig.DB.RootPassword,
+				"ReplUser":                       globalConfig.DB.ReplUser,
+				"ReplPassword":                   globalConfig.DB.ReplPassword,
+				"CurrentVersion":                 naming.CurrentConfigVersion(instance),
+				"UpdateVersion":                  naming.UpdateConfigVersion(instance),
+				"Replications":                   replications,
+				"DeployArch":                     naming.DeployArch(instance),
+				"MGREnabled":                     mgrConfig.Enabled,
+				"MGRMode":                        mgrConfig.Mode,
+				"MGRGroupName":                   mgrConfig.GroupName,
+				"MGRLocalAddress":                mgrLocalAddress,
+				"MGRSeeds":                       mgrConfig.Seeds,
+				"MGRBootstrap":                   mgrConfig.Enabled,
+				"MGRBootstrapOrdinal":            mgrConfig.BootstrapOrdinal,
+				"MGRGroupPort":                   mgrConfig.GroupPort,
+				"ParameterReportEnabled":         parameterReport.Enabled,
+				"ParameterReportHostFile":        parameterReport.HostFile,
+				"ParameterReportTokenFile":       parameterReport.TokenFile,
+				"ParameterReportCatalogFile":     parameterReport.CatalogFile,
+				"ParameterReportIntervalSeconds": parameterReport.IntervalSeconds,
+				"ParameterReportTimeoutSeconds":  parameterReport.TimeoutSeconds,
 			})
 			if err != nil {
 				return flow.Error(err, "get instance config err")

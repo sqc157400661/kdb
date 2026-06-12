@@ -6,6 +6,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/security"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
+	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -78,6 +79,7 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 							}},
 						},
 					},
+					parameterReportSecretProjection(),
 				},
 			},
 		},
@@ -152,6 +154,31 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 			MountPath: "/tmp",
 		})
 	return
+}
+
+func parameterReportSecretProjection() corev1.VolumeProjection {
+	return corev1.VolumeProjection{
+		Secret: &corev1.SecretProjection{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: naming.GlobalConfigSecret,
+			},
+			Optional: util.Bool(true),
+			Items: []corev1.KeyToPath{
+				{
+					Key:  naming.ParameterReportHostSecretKey,
+					Path: naming.ParameterReportHostSecretKey,
+				},
+				{
+					Key:  naming.ParameterReportTokenSecretKey,
+					Path: naming.ParameterReportTokenSecretKey,
+				},
+				{
+					Key:  naming.ParameterReportCatalogSecretKey,
+					Path: naming.ParameterReportCatalogSecretKey,
+				},
+			},
+		},
+	}
 }
 
 func instanceContainer(rc *context.InstanceContext, statefulSetName string, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {

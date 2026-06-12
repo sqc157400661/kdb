@@ -16,6 +16,16 @@ const (
 )
 
 const (
+	ParameterReportHostSecretKey    = "report_host"
+	ParameterReportTokenSecretKey   = "report_token"
+	ParameterReportCatalogSecretKey = "parameter_catalog.json"
+
+	ParameterReportHostPath    = ConfigMountPath + "/" + ParameterReportHostSecretKey
+	ParameterReportTokenPath   = ConfigMountPath + "/" + ParameterReportTokenSecretKey
+	ParameterReportCatalogPath = ConfigMountPath + "/" + ParameterReportCatalogSecretKey
+)
+
+const (
 	// DataMountPath is where to mount the main data volume.
 	DataMountPath = "/kdbdata"
 
