@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -58,13 +59,13 @@ func (r *KDBLogSystemReconciler) Reconcile(ctx context.Context, request ctrl.Req
 	}
 
 	if logSystem.Spec.BackendID == "" {
-		return r.patchStatus(ctx, logSystem, v1.LogSystemPhaseFailed, 0, "", "spec.backendId is required")
+		return r.patchStatus(ctx, logSystem, v1.LogSystemPhaseFailed, 0, "", "spec.backendId is required", 0)
 	}
 	if logSystem.Spec.CredentialSecretRef != nil && logSystem.Spec.CredentialSecretRef.Name != "" {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{Namespace: logSystem.Namespace, Name: logSystem.Spec.CredentialSecretRef.Name}, secret); err != nil {
 			if apierrors.IsNotFound(err) {
-				return r.patchStatus(ctx, logSystem, v1.LogSystemPhaseProgressing, 0, "", "waiting for credential secret")
+				return r.patchStatus(ctx, logSystem, v1.LogSystemPhaseProgressing, 0, "", "waiting for credential secret", 30*time.Second)
 			}
 			return ctrl.Result{}, err
 		}
@@ -84,12 +85,12 @@ func (r *KDBLogSystemReconciler) Reconcile(ctx context.Context, request ctrl.Req
 
 	phase := v1.LogSystemPhaseProgressing
 	message := "waiting for gateway deployment rollout"
-	if deployment.Status.ReadyReplicas >= desiredLogSystemReplicas(logSystem) {
+	if isLogSystemDeploymentReady(deployment, desiredLogSystemReplicas(logSystem)) {
 		phase = v1.LogSystemPhaseReady
 		message = "log system gateway is ready"
 	}
 	logger.V(1).Info("reconciled log system", "phase", phase, "configHash", configHash)
-	return r.patchStatus(ctx, logSystem, phase, deployment.Status.ReadyReplicas, configHash, message)
+	return r.patchStatus(ctx, logSystem, phase, deployment.Status.ReadyReplicas, configHash, message, 0)
 }
 
 func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSystem *v1.KDBLogSystem) (string, error) {
@@ -190,7 +191,7 @@ func (r *KDBLogSystemReconciler) reconcileDeployment(ctx context.Context, logSys
 	return deploy, err
 }
 
-func (r *KDBLogSystemReconciler) patchStatus(ctx context.Context, logSystem *v1.KDBLogSystem, phase string, readyReplicas int32, configHash, message string) (ctrl.Result, error) {
+func (r *KDBLogSystemReconciler) patchStatus(ctx context.Context, logSystem *v1.KDBLogSystem, phase string, readyReplicas int32, configHash, message string, requeueAfter time.Duration) (ctrl.Result, error) {
 	before := logSystem.DeepCopy()
 	logSystem.Status.Phase = phase
 	logSystem.Status.ObservedGeneration = logSystem.Generation
@@ -209,7 +210,7 @@ func (r *KDBLogSystemReconciler) patchStatus(ctx context.Context, logSystem *v1.
 		Reason:             phase,
 		Message:            message,
 	})
-	return ctrl.Result{}, r.Status().Patch(ctx, logSystem, client.MergeFrom(before))
+	return ctrl.Result{RequeueAfter: requeueAfter}, r.Status().Patch(ctx, logSystem, client.MergeFrom(before))
 }
 
 func (r *KDBLogSystemReconciler) SetupWithManager(mgr manager.Manager) error {
@@ -226,6 +227,13 @@ func desiredLogSystemReplicas(logSystem *v1.KDBLogSystem) int32 {
 		return *logSystem.Spec.Gateway.Replicas
 	}
 	return 1
+}
+
+func isLogSystemDeploymentReady(deployment *appsv1.Deployment, desired int32) bool {
+	return deployment.Status.ObservedGeneration >= deployment.Generation &&
+		deployment.Status.UpdatedReplicas == desired &&
+		deployment.Status.ReadyReplicas == desired &&
+		deployment.Status.AvailableReplicas == desired
 }
 
 func logSystemResourceName(logSystem *v1.KDBLogSystem) string {
