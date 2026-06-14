@@ -97,6 +97,20 @@ rules:
   verbs:
   - patch
 - apiGroups:
+  - kdb.com
+  resources:
+  - kdblogsystems
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdblogsystems/status
+  verbs:
+  - patch
+- apiGroups:
   - apps
   resources:
   - statefulsets

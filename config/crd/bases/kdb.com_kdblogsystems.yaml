@@ -1,0 +1,178 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: kdblogsystems.kdb.com
+spec:
+  group: kdb.com
+  names:
+    kind: KDBLogSystem
+    listKind: KDBLogSystemList
+    plural: kdblogsystems
+    singular: kdblogsystem
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.backendId
+      name: backend
+      type: string
+    - jsonPath: .spec.backendType
+      name: type
+      type: string
+    - jsonPath: .status.phase
+      name: phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              backendId:
+                type: string
+              backendType:
+                default: custom_http
+                enum:
+                - custom_http
+                - loki
+                - opensearch
+                - clickhouse
+                - kafka_clickhouse
+                type: string
+              collector:
+                properties:
+                  configPatch:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  daemonSet:
+                    type: string
+                  image:
+                    type: string
+                  namespace:
+                    type: string
+                type: object
+              credentialSecretRef:
+                properties:
+                  name:
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              endpoints:
+                properties:
+                  console:
+                    type: string
+                  query:
+                    type: string
+                  write:
+                    type: string
+                type: object
+              gateway:
+                properties:
+                  image:
+                    type: string
+                  replicas:
+                    default: 1
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    properties:
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        type: object
+                    type: object
+                type: object
+              loggingAppCode:
+                type: string
+              retentionDays:
+                format: int32
+                type: integer
+            required:
+            - backendId
+            type: object
+          status:
+            properties:
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              configHash:
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                type: string
+              readyReplicas:
+                format: int32
+                type: integer
+              serviceName:
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
