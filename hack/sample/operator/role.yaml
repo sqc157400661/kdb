@@ -130,6 +130,20 @@ rules:
   verbs:
     - patch
 - apiGroups:
+    - kdb.com
+  resources:
+    - kdblogsystems
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - kdblogsystems/status
+  verbs:
+    - patch
+- apiGroups:
     - rbac.authorization.k8s.io
   resources:
     - rolebindings
