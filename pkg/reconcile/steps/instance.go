@@ -207,6 +207,7 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	}
 	pgData := naming.PostgreSQLDataMountPath + "/pg" + engineVersion
 	pgWAL := naming.PostgreSQLWALMountPath + "/pg" + engineVersion + "_wal"
+	pgBackRestRepo := postgresPGBackRestRepoPath(instance)
 
 	volumes := []corev1.Volume{
 		{
@@ -247,8 +248,16 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	mounts := []corev1.VolumeMount{
 		{Name: "postgres-data", MountPath: naming.PostgreSQLDataMountPath},
 		{Name: "patroni-config", MountPath: naming.PatroniConfigMountPath, ReadOnly: true},
+		{Name: "patroni-config", MountPath: naming.PGBackRestConfigMountPath, ReadOnly: true},
 		{Name: "postgres-tmp", MountPath: "/tmp"},
 		{Name: "postgres-dshm", MountPath: "/dev/shm"},
+	}
+	if postgresPGBackRestEnabled(instance) && postgresPGBackRestRepoType(instance) == "local" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      "postgres-data",
+			MountPath: postgresPGBackRestRepoPath(instance),
+			SubPath:   "pgbackrestrepo",
+		})
 	}
 	if instanceSet.LogVolumeClaimSpec != nil {
 		volumes = append(volumes, corev1.Volume{
@@ -328,10 +337,11 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		Command: []string{
 			"bash",
 			"-ceu",
-			fmt.Sprintf("chown -R 999:999 %s %s %s && exec /kdb/bin/postgres-startup.sh %s %s",
+			fmt.Sprintf("chown -R 999:999 %s %s %s %s && exec /kdb/bin/postgres-startup.sh %s %s",
 				naming.PostgreSQLDataMountPath,
 				naming.PostgreSQLWALMountPath,
 				naming.PostgreSQLSocketDirectory,
+				pgBackRestRepo,
 				engineVersion,
 				pgWAL),
 		},
@@ -369,4 +379,28 @@ func postgresCredentialEnv(instance *v1.KDBInstance, name, key string) corev1.En
 			},
 		},
 	}
+}
+
+func postgresPGBackRestEnabled(instance *v1.KDBInstance) bool {
+	return instance != nil &&
+		instance.Spec.PostgreSQL != nil &&
+		instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest.Enabled
+}
+
+func postgresPGBackRestRepoType(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.RepoType != "" {
+		return instance.Spec.PostgreSQL.Backups.PGBackRest.RepoType
+	}
+	return "local"
+}
+
+func postgresPGBackRestRepoPath(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.RepoPath != "" {
+		return instance.Spec.PostgreSQL.Backups.PGBackRest.RepoPath
+	}
+	return "/backrestrepo"
 }

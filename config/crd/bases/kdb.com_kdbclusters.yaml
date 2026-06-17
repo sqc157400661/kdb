@@ -612,6 +612,36 @@ spec:
                 type: object
               postgresql:
                 properties:
+                  backups:
+                    properties:
+                      pgbackrest:
+                        properties:
+                          enabled:
+                            type: boolean
+                          repoPath:
+                            default: /backrestrepo
+                            type: string
+                          repoSecretRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          repoType:
+                            default: local
+                            enum:
+                            - local
+                            - s3
+                            type: string
+                          retentionFull:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          stanza:
+                            default: db
+                            type: string
+                        type: object
+                    type: object
                   credentialSecretRef:
                     properties:
                       name:

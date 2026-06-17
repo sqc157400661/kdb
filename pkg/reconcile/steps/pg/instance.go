@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
@@ -70,6 +71,11 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 
 			util.StringMap(&instanceConfigMap.Data)
 			instanceConfigMap.Data[naming.PatroniConfigKey] = naming.YamlGeneratedWarning + string(patroniBytes)
+			if pgBackRestEnabled(instance) {
+				instanceConfigMap.Data[naming.PGBackRestConfigKey] = naming.YamlGeneratedWarning + buildPGBackRestConfig(instance)
+			} else {
+				delete(instanceConfigMap.Data, naming.PGBackRestConfigKey)
+			}
 
 			if err := errors.WithStack(rc.Apply(instanceConfigMap)); err != nil {
 				return flow.Error(err, "apply postgresql configmap err")
@@ -248,6 +254,14 @@ func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 			}
 			pgStatus.Ready = pgStatus.Primary != "" &&
 				instance.Status.InstanceSet.ReadyReplicas == instance.Status.InstanceSet.Replicas
+			if pgBackRestEnabled(instance) {
+				pgStatus.PGBackRest = &v1.PostgreSQLPGBackRestStatus{
+					Enabled:       true,
+					Stanza:        pgBackRestStanza(instance),
+					RepoType:      pgBackRestRepoType(instance),
+					ConfigMapName: naming.InstanceConfigMap(instance).Name,
+				}
+			}
 			instance.Status.PostgreSQL = pgStatus
 			return flow.Pass()
 		})
@@ -286,17 +300,22 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 	}
 
 	parameters := map[string]string{
-		"archive_mode":             "on",
-		"archive_command":          "pgbackrest --stanza=db archive-push %p",
 		"hot_standby":              "on",
 		"max_replication_slots":    "10",
 		"max_wal_senders":          "10",
 		"shared_preload_libraries": "pg_stat_statements",
 		"wal_level":                "replica",
 	}
+	if pgBackRestEnabled(instance) {
+		configPath := fmt.Sprintf("%s/%s", naming.PGBackRestConfigMountPath, naming.PGBackRestConfigKey)
+		stanza := pgBackRestStanza(instance)
+		parameters["archive_mode"] = "on"
+		parameters["archive_command"] = fmt.Sprintf("pgbackrest --config=%s --stanza=%s archive-push %%p", configPath, stanza)
+		parameters["restore_command"] = fmt.Sprintf("pgbackrest --config=%s --stanza=%s archive-get %%f %%p", configPath, stanza)
+	}
 	if instance.Spec.PostgreSQL != nil {
 		for key, value := range instance.Spec.PostgreSQL.Parameters {
-			if key == "data_directory" || key == "hba_file" || key == "port" {
+			if key == "archive_command" || key == "data_directory" || key == "hba_file" || key == "port" || key == "restore_command" {
 				continue
 			}
 			parameters[key] = value
@@ -348,4 +367,64 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 			},
 		},
 	}, nil
+}
+
+func pgBackRestEnabled(instance *v1.KDBInstance) bool {
+	return instance != nil &&
+		instance.Spec.PostgreSQL != nil &&
+		instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest.Enabled
+}
+
+func pgBackRestStanza(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.Stanza != "" {
+		return instance.Spec.PostgreSQL.Backups.PGBackRest.Stanza
+	}
+	return "db"
+}
+
+func pgBackRestRepoType(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.RepoType != "" {
+		return instance.Spec.PostgreSQL.Backups.PGBackRest.RepoType
+	}
+	return "local"
+}
+
+func pgBackRestRepoPath(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.RepoPath != "" {
+		return instance.Spec.PostgreSQL.Backups.PGBackRest.RepoPath
+	}
+	return "/backrestrepo"
+}
+
+func buildPGBackRestConfig(instance *v1.KDBInstance) string {
+	lines := []string{
+		"[global]",
+		"process-max=2",
+		fmt.Sprintf("repo1-type=%s", pgBackRestRepoType(instance)),
+		fmt.Sprintf("repo1-path=%s", pgBackRestRepoPath(instance)),
+		"log-level-console=info",
+		"log-path=/var/log/pgbackrest",
+	}
+	if instance != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Backups != nil &&
+		instance.Spec.PostgreSQL.Backups.PGBackRest != nil && instance.Spec.PostgreSQL.Backups.PGBackRest.RetentionFull != nil {
+		lines = append(lines, fmt.Sprintf("repo1-retention-full=%d", *instance.Spec.PostgreSQL.Backups.PGBackRest.RetentionFull))
+	}
+	lines = append(lines,
+		"",
+		fmt.Sprintf("[%s]", pgBackRestStanza(instance)),
+		fmt.Sprintf("pg1-path=%s/pg%s", naming.PostgreSQLDataMountPath, postgreSQLEngineVersion(instance)),
+	)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func postgreSQLEngineVersion(instance *v1.KDBInstance) string {
+	if instance != nil && instance.Spec.EngineVersion != "" {
+		return instance.Spec.EngineVersion
+	}
+	return "14"
 }

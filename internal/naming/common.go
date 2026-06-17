@@ -12,6 +12,7 @@ const (
 	SidecarConfigKey        = "sidecar"
 	DatabaseConfigKey       = "database"
 	PatroniConfigKey        = "patroni.yaml"
+	PGBackRestConfigKey     = "pgbackrest.conf"
 	SidecarConfigMapFileKey = "config.yaml"
 	MySQLConfigMapFileKey   = "my.cnf"
 )
@@ -54,6 +55,9 @@ const (
 
 	// PatroniConfigMountPath is where Patroni configuration is mounted.
 	PatroniConfigMountPath = "/etc/patroni"
+
+	// PGBackRestConfigMountPath is where pgBackRest configuration is mounted.
+	PGBackRestConfigMountPath = "/etc/pgbackrest"
 
 	// PostgreSQLSocketDirectory is where PostgreSQL UNIX sockets are created.
 	PostgreSQLSocketDirectory = "/tmp/postgres"

@@ -13,6 +13,10 @@ type PostgreSQLSpec struct {
 	// +optional
 	Patroni *PostgreSQLPatroniSpec `json:"patroni,omitempty"`
 
+	// Backups configures PostgreSQL backup and archive settings.
+	// +optional
+	Backups *PostgreSQLBackupSpec `json:"backups,omitempty"`
+
 	// CredentialSecretRef references a Secret that contains PostgreSQL bootstrap credentials.
 	// When empty, the operator creates an instance-scoped Secret with generated passwords.
 	// Expected keys: superuser-username, superuser-password, replication-username, replication-password.
@@ -30,6 +34,45 @@ type PostgreSQLSpec struct {
 	// HBA appends custom pg_hba.conf rules after operator-managed mandatory rules.
 	// +optional
 	HBA []string `json:"hba,omitempty"`
+}
+
+// PostgreSQLBackupSpec contains backup-related PostgreSQL settings.
+type PostgreSQLBackupSpec struct {
+	// PGBackRest configures pgBackRest archive and backup behavior.
+	// +optional
+	PGBackRest *PostgreSQLPGBackRestSpec `json:"pgbackrest,omitempty"`
+}
+
+// PostgreSQLPGBackRestSpec contains pgBackRest settings.
+type PostgreSQLPGBackRestSpec struct {
+	// Enabled controls whether WAL archiving through pgBackRest is enabled.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Stanza is the pgBackRest stanza name.
+	// +optional
+	// +kubebuilder:default=db
+	Stanza string `json:"stanza,omitempty"`
+
+	// RepoType selects the pgBackRest repository type.
+	// +optional
+	// +kubebuilder:validation:Enum=local;s3
+	// +kubebuilder:default=local
+	RepoType string `json:"repoType,omitempty"`
+
+	// RepoPath is the local repository path when repoType=local.
+	// +optional
+	// +kubebuilder:default=/backrestrepo
+	RepoPath string `json:"repoPath,omitempty"`
+
+	// RepoSecretRef references credentials for non-local repositories.
+	// +optional
+	RepoSecretRef *corev1.LocalObjectReference `json:"repoSecretRef,omitempty"`
+
+	// RetentionFull is pgBackRest repo1-retention-full.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	RetentionFull *int32 `json:"retentionFull,omitempty"`
 }
 
 // PostgreSQLPatroniSpec contains Patroni runtime settings.
@@ -89,4 +132,27 @@ type PostgreSQLStatus struct {
 	// Endpoints contains ready PostgreSQL pod network endpoints.
 	// +optional
 	Endpoints []HostInfo `json:"endpoints,omitempty"`
+
+	// PGBackRest contains observed pgBackRest configuration state.
+	// +optional
+	PGBackRest *PostgreSQLPGBackRestStatus `json:"pgbackrest,omitempty"`
+}
+
+// PostgreSQLPGBackRestStatus contains observed pgBackRest state.
+type PostgreSQLPGBackRestStatus struct {
+	// Enabled reports whether pgBackRest archive is configured.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Stanza is the configured pgBackRest stanza.
+	// +optional
+	Stanza string `json:"stanza,omitempty"`
+
+	// RepoType is the configured repository type.
+	// +optional
+	RepoType string `json:"repoType,omitempty"`
+
+	// ConfigMapName is the ConfigMap containing pgbackrest.conf.
+	// +optional
+	ConfigMapName string `json:"configMapName,omitempty"`
 }
