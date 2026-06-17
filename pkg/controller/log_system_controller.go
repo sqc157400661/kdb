@@ -42,10 +42,10 @@ type KDBLogSystemReconciler struct {
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;watch
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=kdb.com,resources=kdblogsystems,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kdb.com,resources=kdblogsystems/status,verbs=patch
 func (r *KDBLogSystemReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {

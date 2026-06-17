@@ -15,6 +15,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -69,6 +70,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - apps
@@ -80,6 +82,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - kdb.com

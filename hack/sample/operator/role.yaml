@@ -8,9 +8,20 @@ rules:
     - ''
   resources:
     - configmaps
+    - services
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - ''
+  resources:
     - persistentvolumeclaims
     - secrets
-    - services
   verbs:
     - create
     - delete
@@ -68,6 +79,17 @@ rules:
     - apps
   resources:
     - deployments
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - apps
+  resources:
     - statefulsets
   verbs:
     - create
