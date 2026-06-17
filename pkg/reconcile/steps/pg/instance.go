@@ -203,6 +203,10 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 	if port == 0 {
 		port = 5432
 	}
+	engineVersion := instance.Spec.EngineVersion
+	if engineVersion == "" {
+		engineVersion = "14"
+	}
 
 	dcs := "kubernetes"
 	ttl := int32(30)
@@ -253,10 +257,9 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 	return map[string]interface{}{
 		"scope":     instance.Name,
 		"namespace": instance.Namespace,
-		"name":      fmt.Sprintf("%s-${POD_NAME}", instance.Name),
+		"name":      instance.Name,
 		"restapi": map[string]interface{}{
-			"listen":          "0.0.0.0:8008",
-			"connect_address": "${POD_IP}:8008",
+			"listen": "0.0.0.0:8008",
 		},
 		"kubernetes": map[string]interface{}{
 			"namespace":   instance.Namespace,
@@ -279,10 +282,9 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 			},
 		},
 		"postgresql": map[string]interface{}{
-			"listen":          fmt.Sprintf("0.0.0.0:%d", port),
-			"connect_address": fmt.Sprintf("${POD_IP}:%d", port),
-			"data_dir":        fmt.Sprintf("%s/pg%s", naming.PostgreSQLDataMountPath, instance.Spec.EngineVersion),
-			"bin_dir":         fmt.Sprintf("/usr/lib/postgresql/%s/bin", instance.Spec.EngineVersion),
+			"listen":   fmt.Sprintf("0.0.0.0:%d", port),
+			"data_dir": fmt.Sprintf("%s/pg%s", naming.PostgreSQLDataMountPath, engineVersion),
+			"bin_dir":  fmt.Sprintf("/usr/lib/postgresql/%s/bin", engineVersion),
 			"authentication": map[string]interface{}{
 				"superuser": map[string]string{
 					"username": "postgres",
