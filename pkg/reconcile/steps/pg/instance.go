@@ -6,11 +6,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/kdb/internal/observed"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	"github.com/sqc157400661/util"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 )
@@ -63,6 +67,130 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				return flow.Error(err, "apply postgresql configmap err")
 			}
 			rc.SetInstanceConfigMap(instanceConfigMap)
+			return flow.Pass()
+		})
+}
+
+// SetService creates DNS, read-write and read-only Services for PostgreSQL.
+func (s *InstanceStepManager) SetService() kube.BindFunc {
+	return s.StepBinder(
+		"SetPostgreSQLService",
+		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			instance := rc.GetInstance()
+			port := naming.KDBInstanceMasterPort(instance)
+			if port == 0 {
+				port = 5432
+			}
+
+			headless := newPostgreSQLService(instance, naming.InstancePodServiceName(instance.Name), corev1.ClusterIPNone, map[string]string{
+				naming.LabelInstance: instance.Name,
+			}, port)
+			rw := newPostgreSQLService(instance, naming.InstanceReadWriteServiceName(instance.Name), "", map[string]string{
+				naming.LabelInstance: instance.Name,
+				naming.LabelRole:     naming.MasterRole,
+			}, port)
+			ro := newPostgreSQLService(instance, naming.InstanceReadOnlyServiceName(instance.Name), "", map[string]string{
+				naming.LabelInstance: instance.Name,
+				naming.LabelRole:     naming.ReplicaRole,
+			}, port)
+
+			for _, service := range []*corev1.Service{headless, rw, ro} {
+				service.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
+				if err := errors.WithStack(rc.SetControllerReference(service)); err != nil {
+					return flow.Error(err, "set postgresql service controller ref err")
+				}
+				if err := errors.WithStack(rc.Apply(service)); err != nil {
+					return flow.Error(err, "apply postgresql service err")
+				}
+			}
+			rc.SetInstancePodService(headless)
+			return flow.Pass()
+		})
+}
+
+func newPostgreSQLService(instance *v1.KDBInstance, name, clusterIP string, selector map[string]string, port int32) *corev1.Service {
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      name,
+	}}
+	service.Annotations = instance.Annotations
+	service.Labels = naming.Merge(instance.Labels, map[string]string{
+		naming.LabelInstance: instance.Name,
+	})
+	service.Spec = corev1.ServiceSpec{
+		ClusterIP: clusterIP,
+		Selector:  selector,
+		Ports: []corev1.ServicePort{{
+			Name: naming.PortDatabase,
+			Port: port,
+		}},
+	}
+	return service
+}
+
+// InitObservedRunner projects Kubernetes resources into generic and PostgreSQL status.
+func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
+	return s.StepBinder(
+		"InitObservedPostgreSQLInstances",
+		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			instance := rc.GetInstance()
+			pods := &corev1.PodList{}
+			runners := &appsv1.StatefulSetList{}
+			selector, err := naming.AsSelector(naming.KDBInstance(rc.Name()))
+			if err != nil {
+				return flow.Error(err, "get selector err")
+			}
+			if err = rc.List(pods, selector); err != nil {
+				return flow.Error(err, "get pod list err")
+			}
+			if err = rc.List(runners, selector); err != nil {
+				return flow.Error(err, "get runners list err")
+			}
+
+			obs := observed.NewObservedRunner(instance, runners.Items, pods.Items)
+			rc.SetObservedRunner(obs)
+			instance.Status.InstanceSet = shared.InstanceSetStatus{Replicas: *instance.Spec.InstanceSet.Replicas}
+			pgStatus := &v1.PostgreSQLStatus{}
+			port := naming.KDBInstanceMasterPort(instance)
+			if port == 0 {
+				port = 5432
+			}
+
+			for _, item := range obs.List {
+				if item == nil || len(item.Pods) == 0 {
+					continue
+				}
+				pod := item.Pods[0]
+				if util.IsPodReady(pod) {
+					instance.Status.InstanceSet.ReadyReplicas++
+					instance.Status.InstanceSet.PodInfos = append(instance.Status.InstanceSet.PodInfos, shared.PodStatusInfo{
+						PodName:  pod.Name,
+						PodPhase: pod.Status.Phase,
+						PodIP:    pod.Status.PodIP,
+						NodeName: pod.Spec.NodeName,
+						HostIP:   pod.Status.HostIP,
+					})
+					if pod.Status.PodIP != "" {
+						pgStatus.Endpoints = append(pgStatus.Endpoints, v1.HostInfo{
+							PodName: pod.Name,
+							Host:    pod.Status.PodIP,
+							Port:    port,
+						})
+					}
+				}
+				if matches, known := item.PodMatchesPodTemplate(); known && matches {
+					instance.Status.InstanceSet.UpdatedReplicas++
+				}
+				switch pod.Labels[naming.LabelRole] {
+				case naming.MasterRole:
+					pgStatus.Primary = pod.Name
+				case naming.ReplicaRole:
+					pgStatus.Replicas = append(pgStatus.Replicas, pod.Name)
+				}
+			}
+			pgStatus.Ready = pgStatus.Primary != "" &&
+				instance.Status.InstanceSet.ReadyReplicas == instance.Status.InstanceSet.Replicas
+			instance.Status.PostgreSQL = pgStatus
 			return flow.Pass()
 		})
 }

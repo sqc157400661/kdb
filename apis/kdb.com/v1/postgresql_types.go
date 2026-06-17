@@ -65,3 +65,22 @@ type PostgreSQLExporterSpec struct {
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
+
+// PostgreSQLStatus contains observed PostgreSQL runtime state.
+type PostgreSQLStatus struct {
+	// Primary is the current primary Pod name when known.
+	// +optional
+	Primary string `json:"primary,omitempty"`
+
+	// Replicas contains known replica Pod names.
+	// +optional
+	Replicas []string `json:"replicas,omitempty"`
+
+	// Ready indicates whether at least one primary endpoint is available and all expected pods are ready.
+	// +optional
+	Ready bool `json:"ready,omitempty"`
+
+	// Endpoints contains ready PostgreSQL pod network endpoints.
+	// +optional
+	Endpoints []HostInfo `json:"endpoints,omitempty"`
+}

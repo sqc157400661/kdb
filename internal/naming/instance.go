@@ -263,6 +263,14 @@ func InstancePodServiceName(instanceName string) string {
 	return instanceName
 }
 
+func InstanceReadWriteServiceName(instanceName string) string {
+	return instanceName + "-rw"
+}
+
+func InstanceReadOnlyServiceName(instanceName string) string {
+	return instanceName + "-ro"
+}
+
 func ClusterDomain() string {
 	if domain := os.Getenv("KDB_CLUSTER_DOMAIN"); domain != "" {
 		return domain

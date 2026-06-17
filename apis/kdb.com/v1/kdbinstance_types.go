@@ -108,6 +108,10 @@ type KDBInstanceStatus struct {
 	// +optional
 	PVCPhase corev1.PersistentVolumeClaimPhase `json:"pvcPhase,omitempty"`
 
+	// PostgreSQL contains observed PostgreSQL runtime state.
+	// +optional
+	PostgreSQL *PostgreSQLStatus `json:"postgresql,omitempty"`
+
 	// conditions represent the observations of KDB pvc current state.
 	// Known .status.conditions.type are: "PersistentVolumeResizing",
 	// "Progressing", "ProxyAvailable"

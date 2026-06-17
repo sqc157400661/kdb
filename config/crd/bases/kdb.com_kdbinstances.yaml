@@ -1296,6 +1296,33 @@ spec:
                 type: object
               message:
                 type: string
+              postgresql:
+                properties:
+                  endpoints:
+                    items:
+                      properties:
+                        host:
+                          type: string
+                        podName:
+                          type: string
+                        port:
+                          format: int32
+                          type: integer
+                      required:
+                      - host
+                      - podName
+                      - port
+                      type: object
+                    type: array
+                  primary:
+                    type: string
+                  ready:
+                    type: boolean
+                  replicas:
+                    items:
+                      type: string
+                    type: array
+                type: object
               pvcPhase:
                 type: string
             type: object
