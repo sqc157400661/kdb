@@ -26,3 +26,9 @@ spec:
       syncPeriodSeconds: 10
     parameters:
       max_connections: "200"
+    # exporter:
+    #   enabled: true
+    #   image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    #   env:
+    #     - name: DATA_SOURCE_URI
+    #       value: localhost:5432/postgres?sslmode=disable

@@ -5,6 +5,7 @@ import (
 
 	"github.com/pkg/errors"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/generate"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/security"
@@ -331,6 +332,10 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	if len(instanceSet.MainContainer.Args) > 0 {
 		database.Args = instanceSet.MainContainer.Args
 	}
+	containers := []corev1.Container{database}
+	if postgresExporterEnabled(instance) {
+		containers = append(containers, postgresExporterContainer(instance, instanceSet, mounts))
+	}
 
 	startup := corev1.Container{
 		Name: "postgres-startup",
@@ -361,7 +366,7 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	}
 	sts.Spec.Template.Spec.Volumes = volumes
 	sts.Spec.Template.Spec.InitContainers = []corev1.Container{startup}
-	sts.Spec.Template.Spec.Containers = []corev1.Container{database}
+	sts.Spec.Template.Spec.Containers = containers
 }
 
 func postgresCredentialEnv(instance *v1.KDBInstance, name, key string) corev1.EnvVar {
@@ -403,4 +408,49 @@ func postgresPGBackRestRepoPath(instance *v1.KDBInstance) string {
 		return instance.Spec.PostgreSQL.Backups.PGBackRest.RepoPath
 	}
 	return "/backrestrepo"
+}
+
+func postgresExporterEnabled(instance *v1.KDBInstance) bool {
+	return instance != nil &&
+		instance.Spec.PostgreSQL != nil &&
+		instance.Spec.PostgreSQL.Exporter != nil &&
+		instance.Spec.PostgreSQL.Exporter.Enabled
+}
+
+func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.InstanceSetSpec, mounts []corev1.VolumeMount) corev1.Container {
+	monitor := instanceSet.MonitorContainer
+	exporter := instance.Spec.PostgreSQL.Exporter
+	if exporter.Image != "" {
+		monitor.Image = exporter.Image
+	}
+	if len(exporter.Env) > 0 {
+		monitor.Env = append(monitor.Env, exporter.Env...)
+	}
+	if !isEmptyResourceRequirements(exporter.Resources) {
+		monitor.Resources = exporter.Resources
+	}
+	return corev1.Container{
+		Name:      naming.ContainerPostgreSQLExporter,
+		Command:   monitor.Command,
+		Args:      monitor.Args,
+		Env:       monitor.Env,
+		Image:     monitor.Image,
+		Resources: monitor.Resources,
+		Ports: []corev1.ContainerPort{{
+			Name:          naming.PortPostgreSQLMetrics,
+			ContainerPort: 9187,
+			Protocol:      corev1.ProtocolTCP,
+		}},
+		SecurityContext: security.InitRestrictedSecurityContext(),
+		VolumeMounts:    postgresExporterVolumeMounts(mounts),
+	}
+}
+
+func postgresExporterVolumeMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
+	for _, mount := range mounts {
+		if mount.Name == "postgres-tmp" {
+			return []corev1.VolumeMount{mount}
+		}
+	}
+	return nil
 }
