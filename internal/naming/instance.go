@@ -25,8 +25,9 @@ const (
 )
 
 const (
-	MySQLEngine    = "mysql"
-	PostgresEngine = "pg"
+	MySQLEngine      = "mysql"
+	PostgresEngine   = "postgresql"
+	PostgresEnginePG = "pg"
 )
 
 const (
@@ -107,14 +108,17 @@ func KDBInstanceMasterPort(instance *v1.KDBInstance) int32 {
 }
 
 func GetPortByEngine(engine string) int32 {
-	if strings.ToLower(engine) == MySQLEngine {
+	switch strings.ToLower(engine) {
+	case MySQLEngine:
 		return 3306
+	case PostgresEngine, PostgresEnginePG:
+		return 5432
 	}
 	return 0
 }
 
 func Engine(instance *v1.KDBInstance) string {
-	return instance.Spec.Engine
+	return strings.ToLower(instance.Spec.Engine)
 }
 
 func IsMySQLEngine(instance *v1.KDBInstance) bool {
@@ -125,7 +129,8 @@ func IsMySQLEngine(instance *v1.KDBInstance) bool {
 }
 
 func IsPGEngine(instance *v1.KDBInstance) bool {
-	if strings.ToLower(Engine(instance)) == PostgresEngine {
+	switch strings.ToLower(Engine(instance)) {
+	case PostgresEngine, PostgresEnginePG:
 		return true
 	}
 	return false
@@ -142,6 +147,15 @@ func InstanceConfigMap(instance *v1.KDBInstance) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace: instance.Namespace,
 		Name:      instance.Name + "-config",
+	}
+}
+
+// PostgreSQLCredentialSecret returns the ObjectMeta for operator-managed
+// PostgreSQL bootstrap credentials.
+func PostgreSQLCredentialSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-postgresql-credential",
 	}
 }
 
@@ -256,6 +270,14 @@ func InstancePodName(name string, index int) string {
 
 func InstancePodServiceName(instanceName string) string {
 	return instanceName
+}
+
+func InstanceReadWriteServiceName(instanceName string) string {
+	return instanceName + "-rw"
+}
+
+func InstanceReadOnlyServiceName(instanceName string) string {
+	return instanceName + "-ro"
 }
 
 func ClusterDomain() string {

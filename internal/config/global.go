@@ -21,10 +21,11 @@ const (
 )
 
 type GlobalConfig struct {
-	DB                  DBConfig              `json:"db" yaml:"db"`
-	MySQLInstanceConfig InstanceConfig        `json:"mysql_instance_config" yaml:"mysql_instance_config"`
-	HostResolveMode     string                `json:"host_resolve_mode" yaml:"host_resolve_mode"`
-	ParameterReport     ParameterReportConfig `json:"parameter_report" yaml:"parameter_report"`
+	DB                       DBConfig              `json:"db" yaml:"db"`
+	MySQLInstanceConfig      InstanceConfig        `json:"mysql_instance_config" yaml:"mysql_instance_config"`
+	PostgreSQLInstanceConfig InstanceConfig        `json:"postgresql_instance_config" yaml:"postgresql_instance_config"`
+	HostResolveMode          string                `json:"host_resolve_mode" yaml:"host_resolve_mode"`
+	ParameterReport          ParameterReportConfig `json:"parameter_report" yaml:"parameter_report"`
 }
 
 type ParameterReportConfig struct {
@@ -122,7 +123,15 @@ func (c *GlobalConfig) GetDBConfig(engine string, fullVersion string) map[string
 		if conf, ok := versionConfig[FullVersion(fullVersion)]; ok {
 			return util.UnsafeMergeMap(conf, global)
 		}
-	case naming.PostgresEngine:
+	case naming.PostgresEngine, naming.PostgresEnginePG:
+		versionConfig := c.PostgreSQLInstanceConfig.VersionConfig
+		global := c.PostgreSQLInstanceConfig.GlobalConfig
+		if len(versionConfig) == 0 {
+			return global
+		}
+		if conf, ok := versionConfig[FullVersion(fullVersion)]; ok {
+			return util.UnsafeMergeMap(conf, global)
+		}
 	default:
 		return global
 	}
@@ -174,7 +183,14 @@ func (c *GlobalConfig) getImage(engine string, fullVersion string) (*InstanceIma
 		if image, ok := imagesMap[FullVersion(fullVersion)]; ok {
 			return &image, nil
 		}
-	case naming.PostgresEngine:
+	case naming.PostgresEngine, naming.PostgresEnginePG:
+		imagesMap := c.PostgreSQLInstanceConfig.VersionImagesMap
+		if len(imagesMap) == 0 {
+			return nil, fmt.Errorf("no postgresql version_images map")
+		}
+		if image, ok := imagesMap[FullVersion(fullVersion)]; ok {
+			return &image, nil
+		}
 	default:
 		return nil, fmt.Errorf("unknown engine %q", engine)
 	}

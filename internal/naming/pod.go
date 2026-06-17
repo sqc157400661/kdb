@@ -14,6 +14,8 @@ const (
 	ContainerSidecar = "mgr"
 
 	ContainerMySQLExporter = "mysql-exporter"
+
+	ContainerPostgreSQLExporter = "postgresql-exporter"
 	//
 	//ContainerInit = "init"
 	//
@@ -25,4 +27,6 @@ const (
 	PortDatabase = "database"
 
 	PortMySQLMetrics = "mysql-metrics"
+
+	PortPostgreSQLMetrics = "postgresql-metrics"
 )

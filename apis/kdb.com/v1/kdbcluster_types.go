@@ -87,6 +87,7 @@ type InstanceDesc struct {
 // +kubebuilder:validation:XValidation:rule="self.deployArch != 'Master-Replica' || size(self.instances) >= 2",message="when deployArch is Master-Replica, len(spec.instances) must be greater than or equal to 2"
 // +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || size(self.instances) >= 3",message="when deployArch is MGR, len(spec.instances) must be greater than or equal to 3"
 // +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal < size(self.instances)",message="when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must be less than len(spec.instances)"
+// +kubebuilder:validation:XValidation:rule="self.engine != 'postgresql' && self.engine != 'pg' || self.deployArch != 'MGR'",message="deployArch MGR is only supported by MySQL"
 type KDBClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -114,6 +115,10 @@ type KDBClusterSpec struct {
 	// MySQL contains MySQL engine specific settings.
 	// +optional
 	MySQL *MySQLSpec `json:"mysql,omitempty"`
+
+	// PostgreSQL contains PostgreSQL engine specific settings.
+	// +optional
+	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
 
 	// Proxy declares the cluster level database proxy layer.
 	// +optional

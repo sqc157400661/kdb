@@ -1,0 +1,33 @@
+apiVersion: kdb.com/v1
+kind: KDBInstance
+metadata:
+  name: demo-postgresql-backup
+  namespace: kdb
+spec:
+  engine: postgresql
+  engineVersion: "14"
+  engineFullVersion: "14"
+  deployArch: Single
+  port: 5432
+  instance:
+    replicas: 1
+    mainContainer:
+      image: kdbdeveloper/postgresql14:v0.0.1
+    dataVolumeClaimSpec:
+      storageClass: standard
+      size: 10Gi
+    logVolumeClaimSpec:
+      storageClass: standard
+      size: 5Gi
+  postgresql:
+    patroni:
+      dcs: kubernetes
+      leaderLeaseDurationSeconds: 30
+      syncPeriodSeconds: 10
+    backups:
+      pgbackrest:
+        enabled: true
+        stanza: db
+        repoType: local
+        repoPath: /backrestrepo
+        retentionFull: 2

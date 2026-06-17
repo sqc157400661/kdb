@@ -36,6 +36,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || (has(self.instance) && has(self.instance.replicas) && self.instance.replicas >= 3)",message="when deployArch is MGR, spec.instance.replicas must be greater than or equal to 3"
 // +kubebuilder:validation:XValidation:rule="self.deployArch != 'MGR' || !has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.bootstrapOrdinal) || self.mysql.mgr.bootstrapOrdinal < self.instance.replicas",message="when deployArch is MGR, spec.mysql.mgr.bootstrapOrdinal must be less than spec.instance.replicas"
 // +kubebuilder:validation:XValidation:rule="!has(self.mysql) || !has(self.mysql.mgr) || !has(self.mysql.mgr.groupPort) || !has(self.port) || self.mysql.mgr.groupPort != self.port",message="spec.mysql.mgr.groupPort must not equal spec.port"
+// +kubebuilder:validation:XValidation:rule="self.engine != 'postgresql' && self.engine != 'pg' || self.deployArch != 'MGR'",message="deployArch MGR is only supported by MySQL"
 type KDBInstanceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -73,6 +74,10 @@ type KDBInstanceSpec struct {
 	// +optional
 	MySQL *MySQLSpec `json:"mysql,omitempty"`
 
+	// PostgreSQL contains PostgreSQL engine specific settings.
+	// +optional
+	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
+
 	// Shutdown requests a logical stop of the KDB instance.
 	// When true, StatefulSet pods are scaled to zero while PVCs and other
 	// persistent resources remain in place for a later start.
@@ -102,6 +107,10 @@ type KDBInstanceStatus struct {
 	// PVCStatus
 	// +optional
 	PVCPhase corev1.PersistentVolumeClaimPhase `json:"pvcPhase,omitempty"`
+
+	// PostgreSQL contains observed PostgreSQL runtime state.
+	// +optional
+	PostgreSQL *PostgreSQLStatus `json:"postgresql,omitempty"`
 
 	// conditions represent the observations of KDB pvc current state.
 	// Known .status.conditions.type are: "PersistentVolumeResizing",
