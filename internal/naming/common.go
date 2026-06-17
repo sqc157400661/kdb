@@ -11,6 +11,7 @@ const (
 const (
 	SidecarConfigKey        = "sidecar"
 	DatabaseConfigKey       = "database"
+	PatroniConfigKey        = "patroni.yaml"
 	SidecarConfigMapFileKey = "config.yaml"
 	MySQLConfigMapFileKey   = "my.cnf"
 )
@@ -37,6 +38,18 @@ const (
 
 	// ConfigMountPath is where to mount the config volume.
 	ConfigMountPath = "/etc/config"
+
+	// PostgreSQLDataMountPath is where PostgreSQL data volumes are mounted.
+	PostgreSQLDataMountPath = "/pgdata"
+
+	// PostgreSQLWALMountPath is where PostgreSQL WAL volumes are mounted.
+	PostgreSQLWALMountPath = "/pgwal"
+
+	// PatroniConfigMountPath is where Patroni configuration is mounted.
+	PatroniConfigMountPath = "/etc/patroni"
+
+	// PostgreSQLSocketDirectory is where PostgreSQL UNIX sockets are created.
+	PostgreSQLSocketDirectory = "/tmp/postgres"
 )
 
 // Merge takes sets of labels and merges them. The last set
