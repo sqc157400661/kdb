@@ -31,6 +31,9 @@ func TestBuildPatroniConfigDefaults(t *testing.T) {
 	if got := postgresql["data_dir"]; got != "/pgdata/pg14" {
 		t.Fatalf("unexpected data_dir: %v", got)
 	}
+	if _, ok := postgresql["authentication"]; ok {
+		t.Fatalf("postgresql authentication should be provided by Secret-backed PATRONI_* env")
+	}
 	if _, ok := postgresql["connect_address"]; ok {
 		t.Fatalf("postgresql connect_address should be provided by PATRONI_POSTGRESQL_CONNECT_ADDRESS env")
 	}

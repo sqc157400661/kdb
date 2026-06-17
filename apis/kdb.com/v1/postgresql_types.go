@@ -13,6 +13,12 @@ type PostgreSQLSpec struct {
 	// +optional
 	Patroni *PostgreSQLPatroniSpec `json:"patroni,omitempty"`
 
+	// CredentialSecretRef references a Secret that contains PostgreSQL bootstrap credentials.
+	// When empty, the operator creates an instance-scoped Secret with generated passwords.
+	// Expected keys: superuser-username, superuser-password, replication-username, replication-password.
+	// +optional
+	CredentialSecretRef *corev1.LocalObjectReference `json:"credentialSecretRef,omitempty"`
+
 	// Exporter configures the optional PostgreSQL exporter sidecar.
 	// +optional
 	Exporter *PostgreSQLExporterSpec `json:"exporter,omitempty"`

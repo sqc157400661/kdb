@@ -150,6 +150,15 @@ func InstanceConfigMap(instance *v1.KDBInstance) metav1.ObjectMeta {
 	}
 }
 
+// PostgreSQLCredentialSecret returns the ObjectMeta for operator-managed
+// PostgreSQL bootstrap credentials.
+func PostgreSQLCredentialSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-postgresql-credential",
+	}
+}
+
 // InstanceRBAC returns the ObjectMeta necessary to lookup the
 // ServiceAccount, Role, and RoleBinding for cluster's kdb instances.
 func InstanceRBAC(instance *v1.KDBInstance) metav1.ObjectMeta {

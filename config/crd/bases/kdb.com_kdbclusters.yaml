@@ -612,6 +612,12 @@ spec:
                 type: object
               postgresql:
                 properties:
+                  credentialSecretRef:
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
                   exporter:
                     properties:
                       enabled:

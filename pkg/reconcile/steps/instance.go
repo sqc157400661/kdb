@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/generate"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/security"
@@ -275,6 +276,10 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		{Name: "PATRONI_RESTAPI_CONNECT_ADDRESS", Value: "$(POD_IP):8008"},
 		{Name: "PATRONI_RESTAPI_LISTEN", Value: "*:8008"},
 		{Name: "PATRONICTL_CONFIG_FILE", Value: fmt.Sprintf("%s/%s", naming.PatroniConfigMountPath, naming.PatroniConfigKey)},
+		postgresCredentialEnv(instance, "PATRONI_POSTGRESQL_AUTHENTICATION_SUPERUSER_USERNAME", naming.PostgreSQLSuperuserUsernameKey),
+		postgresCredentialEnv(instance, "PATRONI_POSTGRESQL_AUTHENTICATION_SUPERUSER_PASSWORD", naming.PostgreSQLSuperuserPasswordKey),
+		postgresCredentialEnv(instance, "PATRONI_POSTGRESQL_AUTHENTICATION_REPLICATION_USERNAME", naming.PostgreSQLReplicationUsernameKey),
+		postgresCredentialEnv(instance, "PATRONI_POSTGRESQL_AUTHENTICATION_REPLICATION_PASSWORD", naming.PostgreSQLReplicationPasswordKey),
 		{Name: "KDB_INSTANCE_NAME", Value: instance.Name},
 		{Name: "KDB_NAMESPACE", Value: instance.Namespace},
 		{Name: "KDB_ENGINE", Value: naming.Engine(instance)},
@@ -347,4 +352,21 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	sts.Spec.Template.Spec.Volumes = volumes
 	sts.Spec.Template.Spec.InitContainers = []corev1.Container{startup}
 	sts.Spec.Template.Spec.Containers = []corev1.Container{database}
+}
+
+func postgresCredentialEnv(instance *v1.KDBInstance, name, key string) corev1.EnvVar {
+	secretName := naming.PostgreSQLCredentialSecret(instance).Name
+	if instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.CredentialSecretRef != nil &&
+		instance.Spec.PostgreSQL.CredentialSecretRef.Name != "" {
+		secretName = instance.Spec.PostgreSQL.CredentialSecretRef.Name
+	}
+	return corev1.EnvVar{
+		Name: name,
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Key:                  key,
+			},
+		},
+	}
 }

@@ -17,6 +17,13 @@ const (
 )
 
 const (
+	PostgreSQLSuperuserUsernameKey   = "superuser-username"
+	PostgreSQLSuperuserPasswordKey   = "superuser-password"
+	PostgreSQLReplicationUsernameKey = "replication-username"
+	PostgreSQLReplicationPasswordKey = "replication-password"
+)
+
+const (
 	ParameterReportHostSecretKey    = "report_host"
 	ParameterReportTokenSecretKey   = "report_token"
 	ParameterReportCatalogSecretKey = "parameter_catalog.json"

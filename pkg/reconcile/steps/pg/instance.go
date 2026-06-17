@@ -1,6 +1,8 @@
 package pg
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -14,7 +16,9 @@ import (
 	"github.com/sqc157400661/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 )
@@ -40,6 +44,10 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 		"SetPostgreSQLInstanceConfig",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
 			instance := rc.GetInstance()
+			if err := ensurePostgreSQLCredentialSecret(rc, instance); err != nil {
+				return flow.Error(err, "ensure postgresql credential secret err")
+			}
+
 			instanceConfigMap := &corev1.ConfigMap{ObjectMeta: naming.InstanceConfigMap(instance)}
 			instanceConfigMap.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("ConfigMap"))
 
@@ -69,6 +77,56 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			rc.SetInstanceConfigMap(instanceConfigMap)
 			return flow.Pass()
 		})
+}
+
+func ensurePostgreSQLCredentialSecret(rc *context.InstanceContext, instance *v1.KDBInstance) error {
+	ref := postgreSQLCredentialSecretRef(instance)
+	secret := &corev1.Secret{}
+	err := rc.Client().Get(rc.Context(), client.ObjectKey{Namespace: instance.Namespace, Name: ref.Name}, secret)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return errors.WithStack(err)
+	}
+	if instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.CredentialSecretRef != nil &&
+		instance.Spec.PostgreSQL.CredentialSecretRef.Name != "" {
+		return errors.Errorf("referenced postgresql credential secret %s/%s not found", instance.Namespace, ref.Name)
+	}
+
+	secret = &corev1.Secret{ObjectMeta: naming.PostgreSQLCredentialSecret(instance)}
+	secret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+	secret.Type = corev1.SecretTypeOpaque
+	secret.Labels = naming.Merge(instance.Labels, map[string]string{
+		naming.LabelInstance: instance.Name,
+	})
+	secret.Annotations = naming.Merge(instance.Annotations)
+	secret.Data = map[string][]byte{
+		naming.PostgreSQLSuperuserUsernameKey:   []byte("postgres"),
+		naming.PostgreSQLSuperuserPasswordKey:   []byte(randomHex(24)),
+		naming.PostgreSQLReplicationUsernameKey: []byte("replicator"),
+		naming.PostgreSQLReplicationPasswordKey: []byte(randomHex(24)),
+	}
+	if err := errors.WithStack(rc.SetControllerReference(secret)); err != nil {
+		return err
+	}
+	return errors.WithStack(rc.Client().Create(rc.Context(), secret))
+}
+
+func postgreSQLCredentialSecretRef(instance *v1.KDBInstance) corev1.LocalObjectReference {
+	if instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.CredentialSecretRef != nil &&
+		instance.Spec.PostgreSQL.CredentialSecretRef.Name != "" {
+		return *instance.Spec.PostgreSQL.CredentialSecretRef
+	}
+	return corev1.LocalObjectReference{Name: naming.PostgreSQLCredentialSecret(instance).Name}
+}
+
+func randomHex(size int) string {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("kdb-postgresql-%d", size)
+	}
+	return hex.EncodeToString(buf)
 }
 
 // SetService creates DNS, read-write and read-only Services for PostgreSQL.
@@ -285,16 +343,6 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 			"listen":   fmt.Sprintf("0.0.0.0:%d", port),
 			"data_dir": fmt.Sprintf("%s/pg%s", naming.PostgreSQLDataMountPath, engineVersion),
 			"bin_dir":  fmt.Sprintf("/usr/lib/postgresql/%s/bin", engineVersion),
-			"authentication": map[string]interface{}{
-				"superuser": map[string]string{
-					"username": "postgres",
-					"password": "postgres",
-				},
-				"replication": map[string]string{
-					"username": "replicator",
-					"password": "replicator",
-				},
-			},
 			"parameters": map[string]string{
 				"unix_socket_directories": naming.PostgreSQLSocketDirectory,
 			},

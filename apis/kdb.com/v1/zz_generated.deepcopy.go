@@ -961,6 +961,11 @@ func (in *PostgreSQLSpec) DeepCopyInto(out *PostgreSQLSpec) {
 		*out = new(PostgreSQLPatroniSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.CredentialSecretRef != nil {
+		in, out := &in.CredentialSecretRef, &out.CredentialSecretRef
+		*out = new(corev1.LocalObjectReference)
+		**out = **in
+	}
 	if in.Exporter != nil {
 		in, out := &in.Exporter, &out.Exporter
 		*out = new(PostgreSQLExporterSpec)
