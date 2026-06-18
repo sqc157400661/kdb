@@ -1,9 +1,12 @@
 package controller
 
 import (
+	"reflect"
 	"testing"
 
+	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
@@ -49,5 +52,68 @@ func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
 				t.Fatalf("isLogSystemDeploymentReady() = %v, want %v", got, tt.wantReady)
 			}
 		})
+	}
+}
+
+func TestLogSystemSelectorLabelsExcludeBackendHash(t *testing.T) {
+	logSystem := &v1.KDBLogSystem{
+		ObjectMeta: metav1.ObjectMeta{Name: "kdb-logs"},
+		Spec:       v1.KDBLogSystemSpec{BackendID: "backend-a"},
+	}
+
+	selectorLabels := logSystemSelectorLabels(logSystem)
+	if _, ok := selectorLabels["kdb.com/log-backend-hash"]; ok {
+		t.Fatalf("selector labels must not include mutable backend hash: %v", selectorLabels)
+	}
+
+	want := map[string]string{
+		"app.kubernetes.io/name":       "kdb-log-system",
+		"app.kubernetes.io/managed-by": "kdb-operator",
+		"app.kubernetes.io/instance":   "kdb-logs",
+	}
+	if !reflect.DeepEqual(selectorLabels, want) {
+		t.Fatalf("logSystemSelectorLabels() = %v, want %v", selectorLabels, want)
+	}
+}
+
+func TestLogSystemLabelsIncludeSelectorLabelsAndBackendHash(t *testing.T) {
+	logSystem := &v1.KDBLogSystem{
+		ObjectMeta: metav1.ObjectMeta{Name: "kdb-logs"},
+		Spec:       v1.KDBLogSystemSpec{BackendID: "backend-a"},
+	}
+
+	labels := logSystemLabels(logSystem)
+	for key, value := range logSystemSelectorLabels(logSystem) {
+		if labels[key] != value {
+			t.Fatalf("logSystemLabels()[%q] = %q, want selector value %q", key, labels[key], value)
+		}
+	}
+	if labels["kdb.com/log-backend-hash"] == "" {
+		t.Fatalf("logSystemLabels() missing backend hash: %v", labels)
+	}
+}
+
+func TestMergeLogSystemLabelsKeepsExistingSelectorLabels(t *testing.T) {
+	base := map[string]string{
+		"app.kubernetes.io/name":       "kdb-log-system",
+		"app.kubernetes.io/managed-by": "kdb-operator",
+		"app.kubernetes.io/instance":   "kdb-logs",
+		"kdb.com/log-backend-hash":     "new-hash",
+	}
+	existingSelector := map[string]string{
+		"app.kubernetes.io/name":       "kdb-log-system",
+		"app.kubernetes.io/managed-by": "kdb-operator",
+		"kdb.com/log-backend-hash":     "old-hash",
+	}
+
+	labels := mergeLogSystemLabels(base, existingSelector)
+	if labels["kdb.com/log-backend-hash"] != "old-hash" {
+		t.Fatalf("template labels must preserve existing immutable selector hash, got %q", labels["kdb.com/log-backend-hash"])
+	}
+	if labels["app.kubernetes.io/instance"] != "kdb-logs" {
+		t.Fatalf("template labels must include stable service selector labels, got %v", labels)
+	}
+	if base["kdb.com/log-backend-hash"] != "new-hash" {
+		t.Fatalf("mergeLogSystemLabels mutated base labels: %v", base)
 	}
 }
