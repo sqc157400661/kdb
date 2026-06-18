@@ -1,6 +1,6 @@
 export GO111MODULE := on
 GOOS := $(if $(GOOS),$(GOOS),linux)
-GOARCH := $(if $(GOARCH),$(GOARCH),amd64)
+GOARCH := $(if $(GOARCH),$(GOARCH),$(shell go env GOARCH))
 GOENV  := CGO_ENABLED=0 GO15VENDOREXPERIMENT="1" GOOS=$(GOOS) GOARCH=$(GOARCH)
 GO     := $(GOENV) go build
 GOTEST := CGO_ENABLED=1 go test -v -cover
@@ -8,6 +8,8 @@ PACKAGES  := $$(go list ./...| grep -vE 'vendor|tests|case|cicd|dryrun')
 
 
 IMAGE_NAME ?= kdbdeveloper/operator:v0.0.25
+DOCKER_PLATFORM ?= $(GOOS)/$(GOARCH)
+KIND_CLUSTER ?= kdb
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.25.0
@@ -75,7 +77,7 @@ operator:
 
 .PHONY: operator-docker
 operator-docker: operator
-	docker build -f hack/docker/Dockerfile -t $(IMAGE_NAME) .
+	docker build --platform $(DOCKER_PLATFORM) -f hack/docker/Dockerfile -t $(IMAGE_NAME) .
 
 .PHONY: docker-push
 docker-push: operator operator-docker
@@ -83,7 +85,7 @@ docker-push: operator operator-docker
 
 .PHONY: kind-load
 kind-load: operator operator-docker
-	kind load docker-image $(IMAGE_NAME)
+	kind load docker-image $(IMAGE_NAME) --name $(KIND_CLUSTER)
 
 
 generate-client:
