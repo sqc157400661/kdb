@@ -125,13 +125,23 @@ func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSyst
 
 func (r *KDBLogSystemReconciler) reconcileService(ctx context.Context, logSystem *v1.KDBLogSystem) error {
 	name := logSystemResourceName(logSystem)
+	selectorLabels := logSystemSelectorLabels(logSystem)
+	deploy := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: logSystem.Namespace, Name: name}, deploy); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	} else if deploy.Spec.Selector != nil && len(deploy.Spec.Selector.MatchLabels) > 0 {
+		selectorLabels = mergeLogSystemLabels(nil, deploy.Spec.Selector.MatchLabels)
+	}
+
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: logSystem.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		if err := controllerutil.SetControllerReference(logSystem, svc, r.Scheme); err != nil {
 			return err
 		}
 		svc.Labels = logSystemLabels(logSystem)
-		svc.Spec.Selector = logSystemLabels(logSystem)
+		svc.Spec.Selector = selectorLabels
 		svc.Spec.Ports = []corev1.ServicePort{{
 			Name:       defaultLogSystemPortName,
 			Port:       defaultLogSystemPort,
@@ -145,6 +155,7 @@ func (r *KDBLogSystemReconciler) reconcileService(ctx context.Context, logSystem
 func (r *KDBLogSystemReconciler) reconcileDeployment(ctx context.Context, logSystem *v1.KDBLogSystem, configHash string) (*appsv1.Deployment, error) {
 	name := logSystemResourceName(logSystem)
 	labels := logSystemLabels(logSystem)
+	selectorLabels := logSystemSelectorLabels(logSystem)
 	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: logSystem.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
 		if err := controllerutil.SetControllerReference(logSystem, deploy, r.Scheme); err != nil {
@@ -153,8 +164,10 @@ func (r *KDBLogSystemReconciler) reconcileDeployment(ctx context.Context, logSys
 		replicas := desiredLogSystemReplicas(logSystem)
 		deploy.Labels = labels
 		deploy.Spec.Replicas = &replicas
-		deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-		deploy.Spec.Template.Labels = labels
+		if deploy.Spec.Selector == nil {
+			deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
+		}
+		deploy.Spec.Template.Labels = mergeLogSystemLabels(labels, deploy.Spec.Selector.MatchLabels)
 		deploy.Spec.Template.Annotations = map[string]string{"kdb.com/log-config-hash": configHash}
 		deploy.Spec.Template.Spec.Containers = []corev1.Container{{
 			Name:  "gateway",
@@ -243,12 +256,29 @@ func logSystemResourceName(logSystem *v1.KDBLogSystem) string {
 	return fmt.Sprintf("kdb-log-%s", logSystem.Spec.BackendID)
 }
 
-func logSystemLabels(logSystem *v1.KDBLogSystem) map[string]string {
+func logSystemSelectorLabels(logSystem *v1.KDBLogSystem) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/name":       "kdb-log-system",
 		"app.kubernetes.io/managed-by": "kdb-operator",
-		"kdb.com/log-backend-hash":     shortLogSystemHash([]byte(logSystem.Spec.BackendID)),
+		"app.kubernetes.io/instance":   logSystemResourceName(logSystem),
 	}
+}
+
+func logSystemLabels(logSystem *v1.KDBLogSystem) map[string]string {
+	labels := logSystemSelectorLabels(logSystem)
+	labels["kdb.com/log-backend-hash"] = shortLogSystemHash([]byte(logSystem.Spec.BackendID))
+	return labels
+}
+
+func mergeLogSystemLabels(base map[string]string, overrides map[string]string) map[string]string {
+	labels := make(map[string]string, len(base)+len(overrides))
+	for key, value := range base {
+		labels[key] = value
+	}
+	for key, value := range overrides {
+		labels[key] = value
+	}
+	return labels
 }
 
 func shortLogSystemHash(raw []byte) string {
