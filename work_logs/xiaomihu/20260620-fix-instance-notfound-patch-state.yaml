@@ -1,0 +1,22 @@
+task: fix-instance-notfound-patch
+owner: xiaomihu
+status: in_progress
+branch: feature-fix-instance-notfound-patch
+target_branch: develop
+started_at: "2026-06-20T13:28:25+08:00"
+progress_checklist:
+  - item: inspect operator not found stack
+    status: completed
+  - item: harden deferred patch paths
+    status: completed
+  - item: add context regression tests
+    status: completed
+  - item: run checks
+    status: completed
+  - item: push and merge to develop
+    status: pending
+deliverables:
+  - pkg/reconcile/context/instance_context.go
+  - pkg/reconcile/context/instance_context_test.go
+blockers: []
+next_action: push branch and prepare develop merge path

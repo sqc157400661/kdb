@@ -153,11 +153,17 @@ func (rc *InstanceContext) DeleteFinalizer(key string) []string {
 // PatchKDBInstanceStatus the function for the updating the KDBInstance status. Returns any error that
 // occurs while attempting to patch the status
 func (rc *InstanceContext) PatchKDBInstanceStatus() error {
+	if rc.oldInstance == nil || rc.instance == nil {
+		return nil
+	}
 	if !equality.Semantic.DeepEqual(rc.oldInstance.Status, rc.instance.Status) {
 		// NOTE: Kubernetes prior to v1.16.10 and v1.17.6 does not track
 		// managed fields on the status subresource: https://issue.k8s.io/88901
 		if err := errors.WithStack(rc.Client().Status().Patch(
 			rc.Context(), rc.instance, client.MergeFrom(rc.oldInstance), rc.Owner())); err != nil {
+			if apierrors.IsNotFound(errors.Cause(err)) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -169,6 +175,9 @@ func (rc *InstanceContext) PatchKDBInstanceStatus() error {
 func (rc *InstanceContext) PatchKDBInstance() error {
 	before := rc.GetOldInstance()
 	instance := rc.GetInstance()
+	if before == nil || instance == nil {
+		return nil
+	}
 	intent := instance.DeepCopy()
 	if equality.Semantic.DeepEqual(intent.Spec, before.Spec) &&
 		equality.Semantic.DeepEqual(intent.ObjectMeta.Labels, before.ObjectMeta.Labels) &&
@@ -176,7 +185,13 @@ func (rc *InstanceContext) PatchKDBInstance() error {
 		return nil
 	}
 	// not support server-side apply
-	return rc.Client().Patch(rc.Context(), intent, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
+	if err := errors.WithStack(rc.Client().Patch(rc.Context(), intent, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))); err != nil {
+		if apierrors.IsNotFound(errors.Cause(err)) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (rc *InstanceContext) SetClusterServiceAccount(sa *corev1.ServiceAccount) {
