@@ -122,8 +122,10 @@ func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSyst
 		}
 		cm.Labels = logSystemLabels(logSystem)
 		cm.Data = map[string]string{
-			"backend.json": string(raw),
-			"configHash":   hash,
+			"backend.json":    string(raw),
+			"configHash":      hash,
+			"fluent-bit.conf": renderLogSystemFluentBitConfig(logSystem.Spec.Endpoints.Write),
+			"parsers.conf":    renderLogSystemFluentBitParsers(),
 		}
 		return nil
 	})
@@ -250,7 +252,9 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "backend-config", MountPath: "/etc/kdb/log-system", ReadOnly: true},
+				{Name: "backend-config", MountPath: "/fluent-bit/etc", ReadOnly: true},
 				{Name: "varlog", MountPath: "/var/log", ReadOnly: true},
+				{Name: "kubelet-pods", MountPath: "/var/lib/kubelet/pods", ReadOnly: true},
 			},
 		}}
 		ds.Spec.Template.Spec.Volumes = []corev1.Volume{
@@ -264,10 +268,74 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 				Name:         "varlog",
 				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/log"}},
 			},
+			{
+				Name:         "kubelet-pods",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods"}},
+			},
 		}
 		return nil
 	})
 	return ds, err
+}
+
+func renderLogSystemFluentBitConfig(writeEndpoint string) string {
+	return fmt.Sprintf(`[SERVICE]
+    Flush        5
+    Daemon       Off
+    Log_Level    info
+    Parsers_File parsers.conf
+
+[INPUT]
+    Name              tail
+    Path              /var/log/containers/*.log
+    Parser            cri
+    Tag               kube.*
+    Path_Key          file_path
+    Refresh_Interval  5
+    Mem_Buf_Limit     50MB
+    Skip_Long_Lines   On
+
+[INPUT]
+    Name              tail
+    Path              /var/lib/kubelet/pods/*/volumes/*/*/log/my-error.log,/var/lib/kubelet/pods/*/volumes/*/*/log/slow.log
+    Parser            mysql_file
+    Tag               kdb.mysql.file
+    Path_Key          file_path
+    Refresh_Interval  5
+    Mem_Buf_Limit     50MB
+    Skip_Long_Lines   On
+
+[FILTER]
+    Name                kubernetes
+    Match               kube.*
+    Merge_Log           On
+    Keep_Log            Off
+    K8S-Logging.Parser  On
+    K8S-Logging.Exclude Off
+
+[OUTPUT]
+    Name        loki
+    Match       *
+    Url         %s
+    Labels      job=kdb,source=fluent-bit
+    Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path
+    Line_Format json
+`, writeEndpoint)
+}
+
+func renderLogSystemFluentBitParsers() string {
+	return `[PARSER]
+    Name        cri
+    Format      regex
+    Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+    Time_Key    time
+    Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+[PARSER]
+    Name        mysql_file
+    Format      regex
+    Regex       ^(?<log>.*)$
+`
 }
 
 func (r *KDBLogSystemReconciler) patchStatus(ctx context.Context, logSystem *v1.KDBLogSystem, phase string, readyReplicas int32, configHash, message string, requeueAfter time.Duration) (ctrl.Result, error) {
