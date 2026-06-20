@@ -297,7 +297,7 @@ func renderLogSystemFluentBitConfig(writeEndpoint string) string {
 
 [INPUT]
     Name              tail
-    Path              /var/lib/kubelet/pods/*/volumes/*/*/log/my-error.log,/var/lib/kubelet/pods/*/volumes/*/*/log/slow.log
+    Path              /var/lib/kubelet/pods/*/volumes/*/*/log/*.log,/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log
     Parser            mysql_file
     Tag               kdb.mysql.file
     Path_Key          file_path
