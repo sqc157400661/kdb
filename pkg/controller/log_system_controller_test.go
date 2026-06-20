@@ -57,19 +57,26 @@ func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
 }
 
 func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *testing.T) {
-	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push")
+	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push", []string{"/custom/mysql-logs", "relative", "/kdbdata/log/"})
 	for _, want := range []string{
 		"Host        loki.kdb.svc",
 		"Port        3100",
 		"URI         /loki/api/v1/push",
 		"/var/log/containers/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/kdbdata/log/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/kdb/logs/*.log",
 		"/var/lib/kubelet/pods/*/volumes/*/*/log/*.log",
 		"/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/custom/mysql-logs/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/mount/custom/mysql-logs/*.log",
 		"Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Fatalf("fluent-bit config missing %q:\n%s", want, conf)
 		}
+	}
+	if strings.Contains(conf, "relative") {
+		t.Fatalf("fluent-bit config should ignore relative extra log dirs:\n%s", conf)
 	}
 	parsers := renderLogSystemFluentBitParsers()
 	if !strings.Contains(parsers, "Name        cri") || !strings.Contains(parsers, "Name        mysql_file") {

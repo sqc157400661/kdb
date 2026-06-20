@@ -39,6 +39,11 @@ type LogSystemCollectorSpec struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
+	// ExtraLogDirs are additional in-container directories collected as *.log files.
+	// System preset directories are always kept and these directories are appended.
+	// +optional
+	ExtraLogDirs []string `json:"extraLogDirs,omitempty"`
+
 	// ConfigPatch is serialized into the managed ConfigMap for the executor/observer.
 	// +optional
 	ConfigPatch map[string]string `json:"configPatch,omitempty"`

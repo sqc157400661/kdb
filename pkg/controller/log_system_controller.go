@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
@@ -125,7 +126,7 @@ func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSyst
 		cm.Data = map[string]string{
 			"backend.json":    string(raw),
 			"configHash":      hash,
-			"fluent-bit.conf": renderLogSystemFluentBitConfig(logSystem.Spec.Endpoints.Write),
+			"fluent-bit.conf": renderLogSystemFluentBitConfig(logSystem.Spec.Endpoints.Write, logSystem.Spec.Collector.ExtraLogDirs),
 			"parsers.conf":    renderLogSystemFluentBitParsers(),
 		}
 		return nil
@@ -279,7 +280,7 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 	return ds, err
 }
 
-func renderLogSystemFluentBitConfig(writeEndpoint string) string {
+func renderLogSystemFluentBitConfig(writeEndpoint string, extraLogDirs []string) string {
 	return fmt.Sprintf(`[SERVICE]
     Flush        5
     Daemon       Off
@@ -298,7 +299,7 @@ func renderLogSystemFluentBitConfig(writeEndpoint string) string {
 
 [INPUT]
     Name              tail
-    Path              /var/lib/kubelet/pods/*/volumes/*/*/log/*.log,/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log
+    Path              %s
     Parser            mysql_file
     Tag               kdb.mysql.file
     Path_Key          file_path
@@ -321,7 +322,54 @@ func renderLogSystemFluentBitConfig(writeEndpoint string) string {
     Labels      job=kdb,source=fluent-bit
     Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path
     Line_Format json
-`, renderLogSystemLokiOutputEndpoint(writeEndpoint))
+`, strings.Join(renderLogSystemFileLogPaths(extraLogDirs), ","), renderLogSystemLokiOutputEndpoint(writeEndpoint))
+}
+
+func renderLogSystemFileLogPaths(extraLogDirs []string) []string {
+	dirs := []string{
+		"/kdbdata/log",
+		"/kdb/logs",
+		"/log",
+		"/logs",
+	}
+	dirs = append(dirs, extraLogDirs...)
+	seenDirs := map[string]struct{}{}
+	seenPaths := map[string]struct{}{}
+	paths := make([]string, 0, len(dirs)*2)
+	for _, dir := range dirs {
+		dir = normalizeLogSystemContainerLogDir(dir)
+		if dir == "" {
+			continue
+		}
+		if _, ok := seenDirs[dir]; ok {
+			continue
+		}
+		seenDirs[dir] = struct{}{}
+		for _, prefix := range []string{
+			"/var/lib/kubelet/pods/*/volumes/*/*",
+			"/var/lib/kubelet/pods/*/volumes/*/*/mount",
+		} {
+			path := prefix + dir + "/*.log"
+			if _, ok := seenPaths[path]; ok {
+				continue
+			}
+			seenPaths[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func normalizeLogSystemContainerLogDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || !strings.HasPrefix(dir, "/") || strings.ContainsAny(dir, "*?[") {
+		return ""
+	}
+	dir = strings.TrimRight(dir, "/")
+	if dir == "" || strings.HasSuffix(dir, ".log") {
+		return ""
+	}
+	return dir
 }
 
 func renderLogSystemLokiOutputEndpoint(writeEndpoint string) string {
