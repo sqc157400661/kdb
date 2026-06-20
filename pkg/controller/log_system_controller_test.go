@@ -59,7 +59,9 @@ func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
 func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *testing.T) {
 	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push")
 	for _, want := range []string{
-		"Url         http://loki.kdb.svc:3100/loki/api/v1/push",
+		"Host        loki.kdb.svc",
+		"Port        3100",
+		"URI         /loki/api/v1/push",
 		"/var/log/containers/*.log",
 		"/var/lib/kubelet/pods/*/volumes/*/*/log/*.log",
 		"/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log",
@@ -72,6 +74,23 @@ func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *test
 	parsers := renderLogSystemFluentBitParsers()
 	if !strings.Contains(parsers, "Name        cri") || !strings.Contains(parsers, "Name        mysql_file") {
 		t.Fatalf("parsers missing cri or mysql_file parser:\n%s", parsers)
+	}
+}
+
+func TestRenderLogSystemLokiOutputEndpointEnablesTLSForHTTPS(t *testing.T) {
+	conf := renderLogSystemLokiOutputEndpoint("https://loki.example.com/loki/api/v1/push")
+	for _, want := range []string{
+		"Host        loki.example.com",
+		"Port        443",
+		"URI         /loki/api/v1/push",
+		"TLS         On",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("loki endpoint config missing %q:\n%s", want, conf)
+		}
+	}
+	if strings.Contains(conf, "Url") {
+		t.Fatalf("loki endpoint config must not use unsupported Url property:\n%s", conf)
 	}
 }
 

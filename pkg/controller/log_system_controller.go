@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"time"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
@@ -316,11 +317,38 @@ func renderLogSystemFluentBitConfig(writeEndpoint string) string {
 [OUTPUT]
     Name        loki
     Match       *
-    Url         %s
+%s
     Labels      job=kdb,source=fluent-bit
     Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path
     Line_Format json
-`, writeEndpoint)
+`, renderLogSystemLokiOutputEndpoint(writeEndpoint))
+}
+
+func renderLogSystemLokiOutputEndpoint(writeEndpoint string) string {
+	parsed, err := url.Parse(writeEndpoint)
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Sprintf("    URI         %s", writeEndpoint)
+	}
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	uri := parsed.EscapedPath()
+	if uri == "" {
+		uri = "/loki/api/v1/push"
+	}
+	if parsed.RawQuery != "" {
+		uri += "?" + parsed.RawQuery
+	}
+	tls := ""
+	if parsed.Scheme == "https" {
+		tls = "\n    TLS         On"
+	}
+	return fmt.Sprintf("    Host        %s\n    Port        %s\n    URI         %s%s", parsed.Hostname(), port, uri, tls)
 }
 
 func renderLogSystemFluentBitParsers() string {
