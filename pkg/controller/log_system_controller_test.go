@@ -2,6 +2,7 @@ package controller
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
@@ -52,6 +53,25 @@ func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
 				t.Fatalf("isLogSystemDeploymentReady() = %v, want %v", got, tt.wantReady)
 			}
 		})
+	}
+}
+
+func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *testing.T) {
+	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push")
+	for _, want := range []string{
+		"Url         http://loki.kdb.svc:3100/loki/api/v1/push",
+		"/var/log/containers/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/log/my-error.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/log/slow.log",
+		"Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("fluent-bit config missing %q:\n%s", want, conf)
+		}
+	}
+	parsers := renderLogSystemFluentBitParsers()
+	if !strings.Contains(parsers, "Name        cri") || !strings.Contains(parsers, "Name        mysql_file") {
+		t.Fatalf("parsers missing cri or mysql_file parser:\n%s", parsers)
 	}
 }
 
