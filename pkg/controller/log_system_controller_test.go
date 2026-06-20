@@ -61,8 +61,8 @@ func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *test
 	for _, want := range []string{
 		"Url         http://loki.kdb.svc:3100/loki/api/v1/push",
 		"/var/log/containers/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/log/my-error.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/log/slow.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/log/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log",
 		"Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path",
 	} {
 		if !strings.Contains(conf, want) {
