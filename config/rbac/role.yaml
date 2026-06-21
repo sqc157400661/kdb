@@ -48,6 +48,17 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - persistentvolumeclaims
   verbs:
   - create
@@ -134,6 +145,20 @@ rules:
 - apiGroups:
   - kdb.com
   resources:
+  - kdbmonitoringstacks
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbmonitoringstacks/status
+  verbs:
+  - patch
+- apiGroups:
+  - kdb.com
+  resources:
   - kdblogsystems
   verbs:
   - get
@@ -148,11 +173,30 @@ rules:
 - apiGroups:
   - monitoring.coreos.com
   resources:
+  - alertmanagers
+  - alertmanagerconfigs
   - podmonitors
+  - probes
+  - prometheuses
+  - prometheusagents
   - prometheusrules
+  - scrapeconfigs
+  - servicemonitors
+  - thanosrulers
   verbs:
   - create
   - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - create
   - get
   - list
   - patch
@@ -203,6 +247,30 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+  - create
+  - escalate
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io

@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kdb-monitoring-stack-role
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kdb-monitoring-stack-role
+subjects:
+  - kind: ServiceAccount
+    name: kdb
+    namespace: kdb

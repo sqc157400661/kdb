@@ -169,10 +169,32 @@ rules:
   verbs:
     - patch
 - apiGroups:
+    - kdb.com
+  resources:
+    - kdbmonitoringstacks
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - kdbmonitoringstacks/status
+  verbs:
+    - patch
+- apiGroups:
     - monitoring.coreos.com
   resources:
+    - alertmanagers
+    - alertmanagerconfigs
     - podmonitors
+    - probes
+    - prometheuses
+    - prometheusagents
     - prometheusrules
+    - scrapeconfigs
+    - servicemonitors
+    - thanosrulers
   verbs:
     - create
     - delete

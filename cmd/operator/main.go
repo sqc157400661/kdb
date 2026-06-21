@@ -217,5 +217,14 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBLogSystem controller")
 		return
 	}
+	if err = (&controller.KDBMonitoringStackReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Config:   mgr.GetConfig(),
+		Recorder: mgr.GetEventRecorderFor(controller.KDBMonitoringStackControllerName),
+	}).SetupWithManager(mgr); err != nil {
+		err = errors.Wrap(err, "unable to create KDBMonitoringStack controller")
+		return
+	}
 	return
 }
