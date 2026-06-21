@@ -74,6 +74,11 @@ type KDBInstanceSpec struct {
 	// +optional
 	MySQL *MySQLSpec `json:"mysql,omitempty"`
 
+	// Proxy declares the optional instance-level database proxy layer.
+	// For MySQL, the first supported implementation is ProxySQL.
+	// +optional
+	Proxy *KDBProxySpec `json:"proxy,omitempty"`
+
 	// PostgreSQL contains PostgreSQL engine specific settings.
 	// +optional
 	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
@@ -111,6 +116,10 @@ type KDBInstanceStatus struct {
 	// PostgreSQL contains observed PostgreSQL runtime state.
 	// +optional
 	PostgreSQL *PostgreSQLStatus `json:"postgresql,omitempty"`
+
+	// Proxy contains observed state of the instance-level proxy layer.
+	// +optional
+	Proxy *KDBProxyStatus `json:"proxy,omitempty"`
 
 	// conditions represent the observations of KDB pvc current state.
 	// Known .status.conditions.type are: "PersistentVolumeResizing",

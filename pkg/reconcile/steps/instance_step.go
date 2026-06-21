@@ -50,6 +50,7 @@ type InstanceStepper interface {
 	ScaleUpInstance() kube.BindFunc
 	ScaleDownInstance() kube.BindFunc
 	SetMonitor() kube.BindFunc
+	ReconcileProxySQL() kube.BindFunc
 }
 
 type InstanceStepManager struct {

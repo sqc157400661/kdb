@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	LabelComponent = "kdb.com/component"
-	LabelProxyType = "kdb.com/proxy-type"
+	LabelComponent  = "kdb.com/component"
+	LabelProxyType  = "kdb.com/proxy-type"
+	LabelProxyOwner = "kdb.com/proxy-owner"
 
 	ComponentProxySQL = "proxysql"
 
@@ -39,10 +40,26 @@ func ProxySQLLabels(cluster *v1.KDBCluster) map[string]string {
 	}
 }
 
+func ProxySQLInstanceLabels(instance *v1.KDBInstance) map[string]string {
+	return map[string]string{
+		LabelClusterID:  proxySQLInstanceOwner(instance),
+		LabelComponent:  ComponentProxySQL,
+		LabelProxyType:  "proxysql",
+		LabelProxyOwner: instance.Name,
+	}
+}
+
 func ProxySQLConfigMap(cluster *v1.KDBCluster) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace: cluster.Namespace,
 		Name:      cluster.Name + "-proxysql-config",
+	}
+}
+
+func ProxySQLInstanceConfigMap(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-proxysql-config",
 	}
 }
 
@@ -53,10 +70,24 @@ func ProxySQLSecret(cluster *v1.KDBCluster) metav1.ObjectMeta {
 	}
 }
 
+func ProxySQLInstanceSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-proxysql-secret",
+	}
+}
+
 func ProxySQLDeployment(cluster *v1.KDBCluster) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace: cluster.Namespace,
 		Name:      cluster.Name + "-proxysql",
+	}
+}
+
+func ProxySQLInstanceDeployment(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-proxysql",
 	}
 }
 
@@ -65,4 +96,18 @@ func ProxySQLService(cluster *v1.KDBCluster) metav1.ObjectMeta {
 		Namespace: cluster.Namespace,
 		Name:      cluster.Name + "-proxy",
 	}
+}
+
+func ProxySQLInstanceService(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Namespace: instance.Namespace,
+		Name:      instance.Name + "-proxy",
+	}
+}
+
+func proxySQLInstanceOwner(instance *v1.KDBInstance) string {
+	if clusterID := KDBInstanceClusterID(instance); clusterID != "" {
+		return clusterID
+	}
+	return instance.Name
 }

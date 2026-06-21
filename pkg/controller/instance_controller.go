@@ -97,6 +97,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 	stepManager.InitObservedRunner()(task)
 	stepManager.ScaleUpInstance()(task)
 	stepManager.ScaleDownInstance()(task)
+	stepManager.ReconcileProxySQL()(task)
 	return kube.NewExecutor(logger).Execute(rc, task)
 }
 
@@ -104,10 +105,10 @@ func (r *KDBInstanceReconciler) Reconcile(
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;patch;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;get;list;patch;update;watch

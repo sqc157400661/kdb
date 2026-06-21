@@ -126,7 +126,7 @@ func (in *KDBClusterList) DeepCopyInto(out *KDBClusterList) {
 	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		in, out := &in.Items, &out.Items
-		*out = make([]KDBInstance, len(*in))
+		*out = make([]KDBCluster, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
@@ -165,6 +165,11 @@ func (in *KDBClusterSpec) DeepCopyInto(out *KDBClusterSpec) {
 	if in.MySQL != nil {
 		in, out := &in.MySQL, &out.MySQL
 		*out = new(MySQLSpec)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Proxy != nil {
+		in, out := &in.Proxy, &out.Proxy
+		*out = new(KDBProxySpec)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.PostgreSQL != nil {
@@ -331,6 +336,11 @@ func (in *KDBInstanceStatus) DeepCopyInto(out *KDBInstanceStatus) {
 	if in.PostgreSQL != nil {
 		in, out := &in.PostgreSQL, &out.PostgreSQL
 		*out = new(PostgreSQLStatus)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Proxy != nil {
+		in, out := &in.Proxy, &out.Proxy
+		*out = new(KDBProxyStatus)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Conditions != nil {

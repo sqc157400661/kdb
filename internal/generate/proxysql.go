@@ -66,6 +66,24 @@ func ProxySQLConfigMapIntent(cluster *v1.KDBCluster, cm *corev1.ConfigMap) (stri
 	return version, backends, nil
 }
 
+func ProxySQLInstanceConfigMapIntent(instance *v1.KDBInstance, cm *corev1.ConfigMap) (string, []v1.KDBProxyBackendStatus, error) {
+	desired, backends, err := RenderProxySQLInstanceDesiredConfig(instance)
+	if err != nil {
+		return "", nil, err
+	}
+	proxysqlConf := RenderProxySQLInstanceConfig(instance)
+	version := ProxySQLConfigVersion(desired, proxysqlConf)
+
+	cm.Labels = naming.Merge(instance.Labels, naming.ProxySQLInstanceLabels(instance))
+	cm.Annotations = naming.Merge(instance.Annotations)
+	cm.Data = map[string]string{
+		naming.ProxySQLConfigVersionFileName: version,
+		naming.ProxySQLDesiredFileName:       naming.YamlGeneratedWarning + desired,
+		naming.ProxySQLConfigFileName:        naming.YamlGeneratedWarning + proxysqlConf,
+	}
+	return version, backends, nil
+}
+
 func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment, configVersion string) {
 	proxy := DefaultedProxySpec(cluster)
 	labels := naming.Merge(cluster.Labels, naming.ProxySQLLabels(cluster))
@@ -155,6 +173,35 @@ func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment,
 	}
 }
 
+func ProxySQLInstanceDeploymentIntent(instance *v1.KDBInstance, deploy *appsv1.Deployment, configVersion string) {
+	proxy := DefaultedProxySpecForSpec(instance.Spec.Proxy)
+	labels := naming.Merge(instance.Labels, naming.ProxySQLInstanceLabels(instance))
+	replicas := ProxyReplicas(proxy)
+	mysqlPort, adminPort := ProxyServicePorts(proxy)
+
+	deploy.Labels = labels
+	deploy.Annotations = naming.Merge(instance.Annotations)
+	deploy.Spec.Replicas = util.Int32(replicas)
+	deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: naming.ProxySQLInstanceLabels(instance)}
+	deploy.Spec.Strategy = appsv1.DeploymentStrategy{
+		Type: appsv1.RollingUpdateDeploymentStrategyType,
+		RollingUpdate: &appsv1.RollingUpdateDeployment{
+			MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+		},
+	}
+	deploy.Spec.Template.Labels = labels
+	deploy.Spec.Template.Annotations = naming.Merge(instance.Annotations, map[string]string{
+		"checksum/proxysql-config": configVersion,
+	})
+	deploy.Spec.Template.Spec.ShareProcessNamespace = util.Bool(true)
+	deploy.Spec.Template.Spec.EnableServiceLinks = util.Bool(false)
+	deploy.Spec.Template.Spec.Containers = proxySQLContainers(proxy, mysqlPort, adminPort)
+	deploy.Spec.Template.Spec.Volumes = proxySQLVolumes(
+		naming.ProxySQLInstanceConfigMap(instance).Name,
+		naming.ProxySQLInstanceSecret(instance).Name,
+	)
+}
+
 func ProxySQLServiceIntent(cluster *v1.KDBCluster, service *corev1.Service) {
 	proxy := DefaultedProxySpec(cluster)
 	mysqlPort, _ := ProxyServicePorts(proxy)
@@ -164,6 +211,22 @@ func ProxySQLServiceIntent(cluster *v1.KDBCluster, service *corev1.Service) {
 	service.Annotations = naming.Merge(cluster.Annotations)
 	service.Spec.Type = proxy.Service.Type
 	service.Spec.Selector = naming.ProxySQLLabels(cluster)
+	service.Spec.Ports = []corev1.ServicePort{{
+		Name:       "mysql",
+		Port:       mysqlPort,
+		TargetPort: intstr.FromString("mysql"),
+	}}
+}
+
+func ProxySQLInstanceServiceIntent(instance *v1.KDBInstance, service *corev1.Service) {
+	proxy := DefaultedProxySpecForSpec(instance.Spec.Proxy)
+	mysqlPort, _ := ProxyServicePorts(proxy)
+	labels := naming.Merge(instance.Labels, naming.ProxySQLInstanceLabels(instance))
+
+	service.Labels = labels
+	service.Annotations = naming.Merge(instance.Annotations)
+	service.Spec.Type = proxy.Service.Type
+	service.Spec.Selector = naming.ProxySQLInstanceLabels(instance)
 	service.Spec.Ports = []corev1.ServicePort{{
 		Name:       "mysql",
 		Port:       mysqlPort,
@@ -214,8 +277,51 @@ func RenderProxySQLDesiredConfig(cluster *v1.KDBCluster) (string, []v1.KDBProxyB
 	return string(out), backends, nil
 }
 
+func RenderProxySQLInstanceDesiredConfig(instance *v1.KDBInstance) (string, []v1.KDBProxyBackendStatus, error) {
+	proxy := DefaultedProxySpecForSpec(instance.Spec.Proxy)
+	backends, err := ProxySQLInstanceBackends(instance)
+	if err != nil {
+		return "", nil, err
+	}
+	users := make([]ProxySQLDesiredUserConfig, 0, len(proxy.Config.Inline.Users))
+	for _, user := range proxy.Config.Inline.Users {
+		users = append(users, ProxySQLDesiredUserConfig{
+			Username:     user.Username,
+			DefaultRoute: defaultString(user.DefaultRoute, "writer"),
+		})
+	}
+
+	desired := ProxySQLDesiredConfig{
+		Cluster: instance.Name,
+		Proxy: ProxySQLDesiredProxy{
+			Type: proxy.Type,
+			Traffic: ProxySQLTrafficConfig{
+				ReadWriteSplit: map[string]bool{"enabled": proxy.Config.Inline.Traffic.ReadWriteSplit.Enabled},
+				LoadBalance:    map[string]string{"algorithm": proxy.Config.Inline.Traffic.LoadBalance.Algorithm},
+			},
+			Extensions: proxysqlExtensions(proxy),
+		},
+		Backends: backends,
+		Users:    users,
+	}
+	out, err := yaml.Marshal(desired)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(out), backends, nil
+}
+
 func RenderProxySQLConfig(cluster *v1.KDBCluster) string {
 	proxy := DefaultedProxySpec(cluster)
+	return renderProxySQLConfig(proxy)
+}
+
+func RenderProxySQLInstanceConfig(instance *v1.KDBInstance) string {
+	proxy := DefaultedProxySpecForSpec(instance.Spec.Proxy)
+	return renderProxySQLConfig(proxy)
+}
+
+func renderProxySQLConfig(proxy v1.KDBProxySpec) string {
 	mysqlPort, adminPort := ProxyServicePorts(proxy)
 	var mysqlVariables []string
 	mysqlVariables = append(mysqlVariables,
@@ -279,10 +385,44 @@ func ProxySQLBackends(cluster *v1.KDBCluster) ([]v1.KDBProxyBackendStatus, error
 	return backends, nil
 }
 
+func ProxySQLInstanceBackends(instance *v1.KDBInstance) ([]v1.KDBProxyBackendStatus, error) {
+	if instance == nil || instance.Spec.InstanceSet.Replicas == nil {
+		return nil, nil
+	}
+	plan, err := topology.ResolveInstancePlan(instance)
+	if err != nil {
+		return nil, err
+	}
+	replicas := int(*instance.Spec.InstanceSet.Replicas)
+	port := naming.KDBInstanceMasterPort(instance)
+	serviceName := naming.InstancePodServiceName(instance.Name)
+	backends := make([]v1.KDBProxyBackendStatus, 0, replicas)
+	for i := 0; i < replicas; i++ {
+		role := "reader"
+		if i == plan.Primary {
+			role = "writer"
+		}
+		backends = append(backends, v1.KDBProxyBackendStatus{
+			Host:   naming.InstancePodHost(instance.Name, serviceName, instance.Namespace, i),
+			Port:   port,
+			Role:   role,
+			Status: "ONLINE",
+		})
+	}
+	return backends, nil
+}
+
 func DefaultedProxySpec(cluster *v1.KDBCluster) v1.KDBProxySpec {
-	proxy := v1.KDBProxySpec{}
 	if cluster != nil && cluster.Spec.Proxy != nil {
-		proxy = *cluster.Spec.Proxy
+		return DefaultedProxySpecForSpec(cluster.Spec.Proxy)
+	}
+	return DefaultedProxySpecForSpec(nil)
+}
+
+func DefaultedProxySpecForSpec(spec *v1.KDBProxySpec) v1.KDBProxySpec {
+	proxy := v1.KDBProxySpec{}
+	if spec != nil {
+		proxy = *spec
 	}
 	if proxy.Type == "" {
 		proxy.Type = v1.ProxyTypeProxySQL
@@ -339,6 +479,77 @@ func DefaultedProxySpec(cluster *v1.KDBCluster) v1.KDBProxySpec {
 		proxy.Resources = &v1.KDBProxyResourceSpec{}
 	}
 	return proxy
+}
+
+func proxySQLContainers(proxy v1.KDBProxySpec, mysqlPort, adminPort int32) []corev1.Container {
+	return []corev1.Container{
+		{
+			Name:    "proxysql",
+			Image:   proxy.Image,
+			Command: []string{"/bin/sh", "-c"},
+			Args:    []string{"trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"},
+			Ports: []corev1.ContainerPort{
+				{Name: "mysql", ContainerPort: mysqlPort},
+				{Name: "admin", ContainerPort: adminPort},
+			},
+			Resources: proxy.Resources.ProxySQL,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: naming.ProxySQLConfigVolume, MountPath: naming.ProxySQLConfigMountPath, ReadOnly: true},
+				{Name: naming.ProxySQLDataVolume, MountPath: naming.ProxySQLDataMountPath},
+			},
+		},
+		{
+			Name:    "mgr",
+			Image:   proxy.MgrImage,
+			Command: []string{"sidecar"},
+			Args: []string{
+				"ProxySQLMgr",
+				"-c",
+				naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLDesiredFileName,
+			},
+			Env: []corev1.EnvVar{
+				{Name: "PROXYSQL_ADMIN_ADDR", Value: "127.0.0.1:" + strconv.Itoa(int(adminPort))},
+				{Name: "PROXYSQL_CONFIG_VERSION_FILE", Value: naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigVersionFileName},
+				{Name: "PROXYSQL_SECRET_DIR", Value: naming.ProxySQLSecretMountPath},
+				{Name: "PROXYSQL_START_COMMAND", Value: "proxysql -f -c " + naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigFileName},
+			},
+			Ports: []corev1.ContainerPort{
+				{Name: "mgr-http", ContainerPort: 8080},
+				{Name: "metrics", ContainerPort: 9104},
+			},
+			Resources: proxy.Resources.Mgr,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: naming.ProxySQLConfigVolume, MountPath: naming.ProxySQLConfigMountPath, ReadOnly: true},
+				{Name: naming.ProxySQLSecretVolume, MountPath: naming.ProxySQLSecretMountPath, ReadOnly: true},
+				{Name: naming.ProxySQLRuntimeVolume, MountPath: naming.ProxySQLRuntimeMountPath},
+			},
+			LivenessProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt(8080)}},
+			},
+			ReadinessProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/v1/proxysql/status", Port: intstr.FromInt(8080)}},
+			},
+		},
+	}
+}
+
+func proxySQLVolumes(configMapName, secretName string) []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name: naming.ProxySQLConfigVolume,
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+			}},
+		},
+		{
+			Name: naming.ProxySQLSecretVolume,
+			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+				SecretName: secretName,
+			}},
+		},
+		{Name: naming.ProxySQLDataVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: naming.ProxySQLRuntimeVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+	}
 }
 
 func ProxyReplicas(proxy v1.KDBProxySpec) int32 {

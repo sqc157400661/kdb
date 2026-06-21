@@ -175,7 +175,7 @@ type KDBCluster struct {
 type KDBClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []KDBInstance `json:"items"`
+	Items           []KDBCluster `json:"items"`
 }
 
 func init() {
