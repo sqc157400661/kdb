@@ -1,6 +1,8 @@
 package steps
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -13,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -580,6 +583,157 @@ func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
 	return s.StepBinder(
 		"SetMonitor",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-			return reconcile.Result{}, nil
+			instance := rc.GetInstance()
+			if !mysqlMonitoringEnabled(instance) {
+				return flow.Pass()
+			}
+			for _, obj := range mysqlMonitoringObjects(instance) {
+				if err := errors.WithStack(rc.SetOwnerReference(obj)); err != nil {
+					return flow.Error(err, "set monitor owner ref err")
+				}
+				if err := errors.WithStack(rc.Apply(obj)); err != nil {
+					if isMonitoringCRDMissing(err) {
+						return flow.Pass()
+					}
+					return flow.Error(err, "apply monitor resource err")
+				}
+			}
+			return flow.Pass()
 		})
+}
+
+func mysqlMonitoringEnabled(instance *v1.KDBInstance) bool {
+	return instance != nil &&
+		naming.IsMySQLEngine(instance) &&
+		instance.Spec.MySQL != nil &&
+		instance.Spec.MySQL.Exporter != nil &&
+		instance.Spec.MySQL.Exporter.Enabled
+}
+
+func mysqlMonitoringObjects(instance *v1.KDBInstance) []*unstructured.Unstructured {
+	return []*unstructured.Unstructured{
+		mysqlPodMonitor(instance),
+		mysqlPrometheusRule(instance),
+	}
+}
+
+func mysqlPodMonitor(instance *v1.KDBInstance) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1",
+		"kind":       "PodMonitor",
+		"metadata": map[string]interface{}{
+			"name":      instance.Name + "-mysql",
+			"namespace": instance.Namespace,
+			"labels":    monitoringResourceLabels(instance, "podmonitor"),
+		},
+		"spec": map[string]interface{}{
+			"namespaceSelector": map[string]interface{}{
+				"matchNames": []interface{}{instance.Namespace},
+			},
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{
+					naming.LabelInstance: instance.Name,
+				},
+			},
+			"podMetricsEndpoints": []interface{}{
+				map[string]interface{}{
+					"port":     naming.PortMySQLMetrics,
+					"path":     "/metrics",
+					"interval": "30s",
+				},
+				map[string]interface{}{
+					"port":     naming.PortSidecarMetrics,
+					"path":     "/metrics",
+					"interval": "30s",
+				},
+			},
+		},
+	}}
+	obj.SetGroupVersionKind(schemaGroupVersionKind("monitoring.coreos.com/v1", "PodMonitor"))
+	return obj
+}
+
+func mysqlPrometheusRule(instance *v1.KDBInstance) *unstructured.Unstructured {
+	podMatcher := fmt.Sprintf(`namespace="%s",pod=~"%s.*"`, instance.Namespace, instance.Name)
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "monitoring.coreos.com/v1",
+		"kind":       "PrometheusRule",
+		"metadata": map[string]interface{}{
+			"name":      instance.Name + "-mysql",
+			"namespace": instance.Namespace,
+			"labels":    monitoringResourceLabels(instance, "rules"),
+		},
+		"spec": map[string]interface{}{
+			"groups": []interface{}{map[string]interface{}{
+				"name": "kdb.mysql." + instance.Name,
+				"rules": []interface{}{
+					map[string]interface{}{
+						"alert": "KDBMySQLExporterDown",
+						"expr":  fmt.Sprintf(`mysql_up{%s} == 0`, podMatcher),
+						"for":   "2m",
+						"labels": map[string]interface{}{
+							"severity": "critical",
+							"engine":   "mysql",
+						},
+						"annotations": map[string]interface{}{
+							"summary": "MySQL exporter is down",
+						},
+					},
+					map[string]interface{}{
+						"alert": "KDBMySQLSidecarDown",
+						"expr":  fmt.Sprintf(`kdb_sidecar_up{%s} == 0`, podMatcher),
+						"for":   "2m",
+						"labels": map[string]interface{}{
+							"severity": "critical",
+							"engine":   "mysql",
+						},
+						"annotations": map[string]interface{}{
+							"summary": "KDB MySQL sidecar metrics are down",
+						},
+					},
+					map[string]interface{}{
+						"alert": "KDBMySQLReplicationLagHigh",
+						"expr":  fmt.Sprintf(`kdb_mysql_mgr_replication_lag_seconds{%s} > 60`, podMatcher),
+						"for":   "5m",
+						"labels": map[string]interface{}{
+							"severity": "warning",
+							"engine":   "mysql",
+						},
+						"annotations": map[string]interface{}{
+							"summary": "KDB MySQL replication lag is high",
+						},
+					},
+				},
+			}},
+		},
+	}}
+	obj.SetGroupVersionKind(schemaGroupVersionKind("monitoring.coreos.com/v1", "PrometheusRule"))
+	return obj
+}
+
+func monitoringResourceLabels(instance *v1.KDBInstance, component string) map[string]interface{} {
+	return map[string]interface{}{
+		"app.kubernetes.io/name":       instance.Name,
+		"app.kubernetes.io/component":  component,
+		"app.kubernetes.io/managed-by": "kdb-operator",
+		"kdb.io/monitoring":            "enabled",
+		naming.LabelInstance:           instance.Name,
+	}
+}
+
+func schemaGroupVersionKind(apiVersion, kind string) schema.GroupVersionKind {
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return schema.GroupVersionKind{Kind: kind}
+	}
+	return gv.WithKind(kind)
+}
+
+func isMonitoringCRDMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no matches for kind") ||
+		strings.Contains(msg, "the server could not find the requested resource")
 }

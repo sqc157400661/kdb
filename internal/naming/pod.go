@@ -26,6 +26,8 @@ const (
 	// PortDatabase is the name of a port that connects to kdb instance.
 	PortDatabase = "database"
 
+	PortSidecarMetrics = "mgr-metrics"
+
 	PortMySQLMetrics = "mysql-metrics"
 
 	PortPostgreSQLMetrics = "postgresql-metrics"

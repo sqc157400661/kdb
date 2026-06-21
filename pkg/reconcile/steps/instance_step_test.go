@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
@@ -23,6 +24,36 @@ func TestStoppedInstanceStatefulSetNamesKeepsDesiredSets(t *testing.T) {
 	}
 	if names.Has("demo2") {
 		t.Fatalf("expected extra StatefulSet demo2 not to be kept")
+	}
+}
+
+func TestMySQLPodMonitorScrapesExporterAndSidecar(t *testing.T) {
+	instance := &v1.KDBInstance{}
+	instance.Name = "demo-mysql"
+	instance.Namespace = "kdb"
+	instance.Spec.Engine = naming.MySQLEngine
+	instance.Spec.MySQL = &v1.MySQLSpec{Exporter: &v1.MySQLExporterSpec{Enabled: true}}
+
+	if !mysqlMonitoringEnabled(instance) {
+		t.Fatalf("expected mysql monitoring to be enabled")
+	}
+	obj := mysqlPodMonitor(instance)
+	endpoints, ok, err := unstructured.NestedSlice(obj.Object, "spec", "podMetricsEndpoints")
+	if err != nil || !ok {
+		t.Fatalf("expected pod monitor endpoints, ok=%v err=%v", ok, err)
+	}
+	ports := map[string]bool{}
+	for _, endpoint := range endpoints {
+		item, ok := endpoint.(map[string]interface{})
+		if !ok {
+			t.Fatalf("unexpected endpoint: %#v", endpoint)
+		}
+		if port, _ := item["port"].(string); port != "" {
+			ports[port] = true
+		}
+	}
+	if !ports[naming.PortMySQLMetrics] || !ports[naming.PortSidecarMetrics] {
+		t.Fatalf("expected exporter and sidecar metrics ports, got %#v", ports)
 	}
 }
 

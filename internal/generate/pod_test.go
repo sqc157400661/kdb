@@ -41,7 +41,7 @@ func TestParameterReportSecretProjection(t *testing.T) {
 
 func TestMySQLExporterEnabled(t *testing.T) {
 	instance := &v1.KDBInstance{}
-	instance.Spec.Engine = naming.MySQLEngine
+	instance.Spec.Engine = "MySQL"
 	instance.Spec.MySQL = &v1.MySQLSpec{
 		Exporter: &v1.MySQLExporterSpec{Enabled: true},
 	}

@@ -9,7 +9,11 @@ init_users:
   - username: _monitor_user
     password: {{.RootPassword}}
     host: localhost
-    privileges: [SELECT,PROCESS]
+    privileges: [SELECT,PROCESS,REPLICATION CLIENT]
+  - username: _monitor_user
+    password: {{.RootPassword}}
+    host: 127.0.0.1
+    privileges: [SELECT,PROCESS,REPLICATION CLIENT]
   - username: {{.ReplUser}}
     password: {{.ReplPassword}}
     host: '%'

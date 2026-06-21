@@ -93,6 +93,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 	stepManager.SetInstanceConfig()(task)
 	stepManager.SetRbac()(task)
 	stepManager.SetService()(task)
+	stepManager.SetMonitor()(task)
 	stepManager.InitObservedRunner()(task)
 	stepManager.ScaleUpInstance()(task)
 	stepManager.ScaleDownInstance()(task)
@@ -113,6 +114,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;prometheusrules,verbs=create;delete;get;list;patch;update;watch
 
 // SetupWithManager adds the KDBInstance controller to the provided runtime manager
 func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {

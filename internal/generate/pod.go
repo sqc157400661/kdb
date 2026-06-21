@@ -208,12 +208,17 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 		return
 	}
 	containers = append(containers, corev1.Container{
-		Name:         naming.ContainerSidecar,
-		Command:      instanceSet.SidecarContainer.Command,
-		Env:          append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...),
-		Args:         instanceSet.SidecarContainer.Args,
-		Image:        instanceSet.SidecarContainer.Image,
-		Resources:    instanceSet.SidecarContainer.Resources,
+		Name:      naming.ContainerSidecar,
+		Command:   instanceSet.SidecarContainer.Command,
+		Env:       append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...),
+		Args:      instanceSet.SidecarContainer.Args,
+		Image:     instanceSet.SidecarContainer.Image,
+		Resources: instanceSet.SidecarContainer.Resources,
+		Ports: []corev1.ContainerPort{{
+			Name:          naming.PortSidecarMetrics,
+			ContainerPort: 8080,
+			Protocol:      corev1.ProtocolTCP,
+		}},
 		VolumeMounts: mounts,
 	})
 	if mysqlExporterEnabled(instance) {
@@ -224,7 +229,7 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 
 func mysqlExporterEnabled(instance *v1.KDBInstance) bool {
 	return instance != nil &&
-		instance.Spec.Engine == naming.MySQLEngine &&
+		naming.IsMySQLEngine(instance) &&
 		instance.Spec.MySQL != nil &&
 		instance.Spec.MySQL.Exporter != nil &&
 		instance.Spec.MySQL.Exporter.Enabled

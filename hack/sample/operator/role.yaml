@@ -169,6 +169,19 @@ rules:
   verbs:
     - patch
 - apiGroups:
+    - monitoring.coreos.com
+  resources:
+    - podmonitors
+    - prometheusrules
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
     - rbac.authorization.k8s.io
   resources:
     - rolebindings
