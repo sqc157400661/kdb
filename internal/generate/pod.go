@@ -1,6 +1,8 @@
 package generate
 
 import (
+	"strings"
+
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/naming"
@@ -49,6 +51,34 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 	// config map
 	configVolumeMount := naming.ConfigVolumeMount()
 	mounts = append(mounts, configVolumeMount)
+	configSources := []corev1.VolumeProjection{
+		{
+			ConfigMap: &corev1.ConfigMapProjection{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: rc.GetInstanceConfigMap().Name,
+				},
+				Items: []corev1.KeyToPath{{
+					Key:  naming.SidecarConfigKey,
+					Path: naming.SidecarConfigMapFileKey,
+				}},
+			},
+		},
+		{
+			ConfigMap: &corev1.ConfigMapProjection{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: rc.GetInstanceConfigMap().Name,
+				},
+				Items: []corev1.KeyToPath{{
+					Key:  naming.DatabaseConfigKey,
+					Path: naming.MySQLConfigMapFileKey,
+				}},
+			},
+		},
+		parameterReportSecretProjection(),
+	}
+	if projection, ok := backupCredentialSecretProjection(instance); ok {
+		configSources = append(configSources, projection)
+	}
 	// Add our projections after those specified in the CR. Items later in the
 	// list take precedence over earlier items (that is, last write wins).
 	// - https://kubernetes.io/docs/concepts/storage/volumes/#projected
@@ -56,31 +86,7 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 		Name: configVolumeMount.Name,
 		VolumeSource: corev1.VolumeSource{
 			Projected: &corev1.ProjectedVolumeSource{
-				Sources: []corev1.VolumeProjection{
-					{
-						ConfigMap: &corev1.ConfigMapProjection{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: rc.GetInstanceConfigMap().Name,
-							},
-							Items: []corev1.KeyToPath{{
-								Key:  naming.SidecarConfigKey,
-								Path: naming.SidecarConfigMapFileKey,
-							}},
-						},
-					},
-					{
-						ConfigMap: &corev1.ConfigMapProjection{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: rc.GetInstanceConfigMap().Name,
-							},
-							Items: []corev1.KeyToPath{{
-								Key:  naming.DatabaseConfigKey,
-								Path: naming.MySQLConfigMapFileKey,
-							}},
-						},
-					},
-					parameterReportSecretProjection(),
-				},
+				Sources: configSources,
 			},
 		},
 	}
@@ -179,6 +185,35 @@ func parameterReportSecretProjection() corev1.VolumeProjection {
 			},
 		},
 	}
+}
+
+func backupCredentialSecretProjection(instance *v1.KDBInstance) (corev1.VolumeProjection, bool) {
+	if instance == nil {
+		return corev1.VolumeProjection{}, false
+	}
+	secretName := strings.TrimSpace(instance.Spec.Config["backup.credentialRef"])
+	if secretName == "" {
+		return corev1.VolumeProjection{}, false
+	}
+	if strings.Contains(secretName, "/") {
+		parts := strings.Split(secretName, "/")
+		secretName = strings.TrimSpace(parts[len(parts)-1])
+	}
+	if secretName == "" {
+		return corev1.VolumeProjection{}, false
+	}
+	return corev1.VolumeProjection{
+		Secret: &corev1.SecretProjection{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+			Optional:             util.Bool(true),
+			Items: []corev1.KeyToPath{
+				{Key: naming.BackupAccessKeyIDSecretKey, Path: naming.BackupAccessKeyIDProjectionPath},
+				{Key: naming.BackupAccessKeySecretSecretKey, Path: naming.BackupAccessKeySecretProjectionPath},
+				{Key: naming.BackupSecurityTokenSecretKey, Path: naming.BackupSecurityTokenProjectionPath},
+				{Key: naming.BackupSessionTokenSecretKey, Path: naming.BackupSessionTokenProjectionPath},
+			},
+		},
+	}, true
 }
 
 func instanceContainer(rc *context.InstanceContext, statefulSetName string, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {

@@ -35,9 +35,44 @@ mgr:
   bootstrap_ordinal: {{.MGRBootstrapOrdinal}}
   group_port: {{.MGRGroupPort}}
 backup:
-  crontab:
-  oss: {}
-  s3: {}
+  enabled: {{.BackupEnabled}}
+  crontab: {{.BackupCrontab}}
+  default_mode: {{.BackupDefaultMode}}
+  backend: {{.BackupBackend}}
+  base_dir: {{.BackupBaseDir}}
+  xtrabackup_bin: {{.BackupXtrabackupBin}}
+  xbstream_bin: {{.BackupXbstreamBin}}
+  xbcloud_bin: {{.BackupXbcloudBin}}
+  timeout_seconds: {{.BackupTimeoutSeconds}}
+  upload_retries: {{.BackupUploadRetries}}
+  resume_max_retries: {{.BackupResumeMaxRetries}}
+  retention_days: {{.BackupRetentionDays}}
+  compress: {{.BackupCompress}}
+  compression: {{.BackupCompression}}
+  concurrency: {{.BackupConcurrency}}
+  local:
+    enabled: {{.BackupLocalEnabled}}
+    root: {{.BackupLocalRoot}}
+  oss:
+    enabled: {{.BackupOSSEnabled}}
+    endpoint: {{.BackupOSSEndpoint}}
+    access_key_id_file: {{.BackupAccessKeyIDFile}}
+    access_key_secret_file: {{.BackupAccessKeySecretFile}}
+    security_token_file: {{.BackupSecurityTokenFile}}
+    bucket: {{.BackupOSSBucket}}
+    prefix: {{.BackupOSSPrefix}}
+    use_insecure: {{.BackupOSSUseInsecure}}
+  s3:
+    enabled: {{.BackupS3Enabled}}
+    endpoint: {{.BackupS3Endpoint}}
+    region: {{.BackupS3Region}}
+    access_key_id_file: {{.BackupAccessKeyIDFile}}
+    access_key_secret_file: {{.BackupAccessKeySecretFile}}
+    session_token_file: {{.BackupSessionTokenFile}}
+    bucket: {{.BackupS3Bucket}}
+    prefix: {{.BackupS3Prefix}}
+    force_path_style: {{.BackupS3ForcePathStyle}}
+    use_ssl: {{.BackupS3UseSSL}}
 parameter_report:
   enabled: {{.ParameterReportEnabled}}
   host_file: {{.ParameterReportHostFile}}

@@ -59,9 +59,10 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				mgrLocalAddress = topology.BuildMGRLocalAddress(instance, int(mgrConfig.BootstrapOrdinal), mgrConfig.GroupPort)
 			}
 			parameterReport := globalConfig.GetParameterReportConfig()
+			backupTemplate := resolveBackupTemplateConfig(instance.Spec.Config)
 			// create config
 			util.StringMap(&instanceConfigMap.Data)
-			configStr, err := util.SafeTemplateFill(config.InstanceConfigTmpl, map[string]any{
+			templateData := map[string]any{
 				"RootUser":                       globalConfig.DB.RootUser,
 				"RootPassword":                   globalConfig.DB.RootPassword,
 				"ReplUser":                       globalConfig.DB.ReplUser,
@@ -84,7 +85,11 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				"ParameterReportCatalogFile":     parameterReport.CatalogFile,
 				"ParameterReportIntervalSeconds": parameterReport.IntervalSeconds,
 				"ParameterReportTimeoutSeconds":  parameterReport.TimeoutSeconds,
-			})
+			}
+			for key, value := range backupTemplate {
+				templateData[key] = value
+			}
+			configStr, err := util.SafeTemplateFill(config.InstanceConfigTmpl, templateData)
 			if err != nil {
 				return flow.Error(err, "get instance config err")
 			}
@@ -163,4 +168,100 @@ func resolveReplications(rc *context.InstanceContext, instance *v1.KDBInstance, 
 		return "", nil
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func resolveBackupTemplateConfig(values map[string]string) map[string]any {
+	backend := backupConfigString(values, "backup.backend", "none")
+	credentialRef := backupConfigString(values, "backup.credentialRef", "")
+	accessKeyIDFile := backupConfigString(values, "backup.credentialAccessKeyIDFile", "")
+	accessKeySecretFile := backupConfigString(values, "backup.credentialAccessKeySecretFile", "")
+	securityTokenFile := backupConfigString(values, "backup.credentialSecurityTokenFile", "")
+	sessionTokenFile := backupConfigString(values, "backup.credentialSessionTokenFile", "")
+	if credentialRef != "" {
+		if accessKeyIDFile == "" {
+			accessKeyIDFile = naming.BackupAccessKeyIDPath
+		}
+		if accessKeySecretFile == "" {
+			accessKeySecretFile = naming.BackupAccessKeySecretPath
+		}
+		if securityTokenFile == "" {
+			securityTokenFile = naming.BackupSecurityTokenPath
+		}
+		if sessionTokenFile == "" {
+			sessionTokenFile = naming.BackupSessionTokenPath
+		}
+	}
+	return map[string]any{
+		"BackupEnabled":             backupConfigBool(values, "backup.enabled", false),
+		"BackupCrontab":             yamlQuote(backupConfigString(values, "backup.crontab", "")),
+		"BackupDefaultMode":         yamlQuote(backupConfigString(values, "backup.defaultMode", "full")),
+		"BackupBackend":             yamlQuote(backend),
+		"BackupBaseDir":             yamlQuote(backupConfigString(values, "backup.baseDir", "/backup")),
+		"BackupXtrabackupBin":       yamlQuote(backupConfigString(values, "backup.xtrabackupBin", "/usr/bin/xtrabackup")),
+		"BackupXbstreamBin":         yamlQuote(backupConfigString(values, "backup.xbstreamBin", "/usr/bin/xbstream")),
+		"BackupXbcloudBin":          yamlQuote(backupConfigString(values, "backup.xbcloudBin", "/usr/bin/xbcloud")),
+		"BackupTimeoutSeconds":      backupConfigInt(values, "backup.timeoutSeconds", 1800),
+		"BackupUploadRetries":       backupConfigInt(values, "backup.uploadRetries", 3),
+		"BackupResumeMaxRetries":    backupConfigInt(values, "backup.resumeMaxRetries", 3),
+		"BackupRetentionDays":       backupConfigInt(values, "backup.retentionDays", 7),
+		"BackupCompress":            backupConfigBool(values, "backup.compress", false),
+		"BackupCompression":         yamlQuote(backupConfigString(values, "backup.compression", "none")),
+		"BackupConcurrency":         backupConfigInt(values, "backup.concurrency", 1),
+		"BackupLocalEnabled":        backupConfigBool(values, "backup.local.enabled", backend == "local"),
+		"BackupLocalRoot":           yamlQuote(backupConfigString(values, "backup.local.root", "/kdbdata/backup-artifacts")),
+		"BackupOSSEnabled":          backupConfigBool(values, "backup.oss.enabled", backend == "oss"),
+		"BackupOSSEndpoint":         yamlQuote(backupConfigString(values, "backup.oss.endpoint", "")),
+		"BackupOSSBucket":           yamlQuote(backupConfigString(values, "backup.oss.bucket", "")),
+		"BackupOSSPrefix":           yamlQuote(backupConfigString(values, "backup.oss.prefix", "")),
+		"BackupOSSUseInsecure":      backupConfigBool(values, "backup.oss.useInsecure", false),
+		"BackupS3Enabled":           backupConfigBool(values, "backup.s3.enabled", backend == "s3" || backend == "tos"),
+		"BackupS3Endpoint":          yamlQuote(backupConfigString(values, "backup.s3.endpoint", "")),
+		"BackupS3Region":            yamlQuote(backupConfigString(values, "backup.s3.region", "")),
+		"BackupS3Bucket":            yamlQuote(backupConfigString(values, "backup.s3.bucket", "")),
+		"BackupS3Prefix":            yamlQuote(backupConfigString(values, "backup.s3.prefix", "")),
+		"BackupS3ForcePathStyle":    backupConfigBool(values, "backup.s3.forcePathStyle", false),
+		"BackupS3UseSSL":            backupConfigBool(values, "backup.s3.useSSL", true),
+		"BackupAccessKeyIDFile":     yamlQuote(accessKeyIDFile),
+		"BackupAccessKeySecretFile": yamlQuote(accessKeySecretFile),
+		"BackupSecurityTokenFile":   yamlQuote(securityTokenFile),
+		"BackupSessionTokenFile":    yamlQuote(sessionTokenFile),
+	}
+}
+
+func backupConfigString(values map[string]string, key, fallback string) string {
+	if values == nil {
+		return fallback
+	}
+	if value, ok := values[key]; ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
+}
+
+func backupConfigBool(values map[string]string, key string, fallback bool) bool {
+	value := backupConfigString(values, key, "")
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(strings.ToLower(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func backupConfigInt(values map[string]string, key string, fallback int) int {
+	value := backupConfigString(values, key, "")
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func yamlQuote(value string) string {
+	return strconv.Quote(value)
 }

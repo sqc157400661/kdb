@@ -35,6 +35,22 @@ const (
 )
 
 const (
+	BackupCredentialDir                 = "backup-secret"
+	BackupAccessKeyIDSecretKey          = "access_key_id"
+	BackupAccessKeySecretSecretKey      = "access_key_secret"
+	BackupSecurityTokenSecretKey        = "security_token"
+	BackupSessionTokenSecretKey         = "session_token"
+	BackupAccessKeyIDPath               = ConfigMountPath + "/" + BackupCredentialDir + "/" + BackupAccessKeyIDSecretKey
+	BackupAccessKeySecretPath           = ConfigMountPath + "/" + BackupCredentialDir + "/" + BackupAccessKeySecretSecretKey
+	BackupSecurityTokenPath             = ConfigMountPath + "/" + BackupCredentialDir + "/" + BackupSecurityTokenSecretKey
+	BackupSessionTokenPath              = ConfigMountPath + "/" + BackupCredentialDir + "/" + BackupSessionTokenSecretKey
+	BackupAccessKeyIDProjectionPath     = BackupCredentialDir + "/" + BackupAccessKeyIDSecretKey
+	BackupAccessKeySecretProjectionPath = BackupCredentialDir + "/" + BackupAccessKeySecretSecretKey
+	BackupSecurityTokenProjectionPath   = BackupCredentialDir + "/" + BackupSecurityTokenSecretKey
+	BackupSessionTokenProjectionPath    = BackupCredentialDir + "/" + BackupSessionTokenSecretKey
+)
+
+const (
 	// DataMountPath is where to mount the main data volume.
 	DataMountPath = "/kdbdata"
 

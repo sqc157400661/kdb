@@ -31,7 +31,7 @@ func TestResolveMGRSeeds(t *testing.T) {
 
 func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 	report := (&config.GlobalConfig{}).GetParameterReportConfig()
-	got, err := util.SafeTemplateFill(config.InstanceConfigTmpl, map[string]any{
+	data := map[string]any{
 		"RootUser":                       "root",
 		"RootPassword":                   "root-pass",
 		"ReplUser":                       "repl",
@@ -54,7 +54,11 @@ func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 		"ParameterReportCatalogFile":     report.CatalogFile,
 		"ParameterReportIntervalSeconds": report.IntervalSeconds,
 		"ParameterReportTimeoutSeconds":  report.TimeoutSeconds,
-	})
+	}
+	for key, value := range resolveBackupTemplateConfig(nil) {
+		data[key] = value
+	}
+	got, err := util.SafeTemplateFill(config.InstanceConfigTmpl, data)
 	if err != nil {
 		t.Fatalf("render instance config template: %v", err)
 	}
@@ -70,5 +74,31 @@ func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestResolveBackupTemplateConfigLocalStorage(t *testing.T) {
+	data := resolveBackupTemplateConfig(map[string]string{
+		"backup.enabled":       "true",
+		"backup.backend":       "local",
+		"backup.crontab":       "0 0 2 * * *",
+		"backup.local.root":    "/kdbdata/local-backups",
+		"backup.retentionDays": "14",
+	})
+
+	if data["BackupEnabled"] != true {
+		t.Fatalf("BackupEnabled = %v, want true", data["BackupEnabled"])
+	}
+	if data["BackupBackend"] != `"local"` {
+		t.Fatalf("BackupBackend = %v, want quoted local", data["BackupBackend"])
+	}
+	if data["BackupCrontab"] != `"0 0 2 * * *"` {
+		t.Fatalf("BackupCrontab = %v, want quoted cron", data["BackupCrontab"])
+	}
+	if data["BackupLocalRoot"] != `"/kdbdata/local-backups"` {
+		t.Fatalf("BackupLocalRoot = %v, want local root", data["BackupLocalRoot"])
+	}
+	if data["BackupRetentionDays"] != 14 {
+		t.Fatalf("BackupRetentionDays = %v, want 14", data["BackupRetentionDays"])
 	}
 }
