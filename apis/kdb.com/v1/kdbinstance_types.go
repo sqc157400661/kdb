@@ -150,7 +150,16 @@ func (k *KDBInstance) Default() {
 		return
 	}
 	if k.Spec.InstanceSet.Replicas == nil {
-		k.Spec.InstanceSet.Replicas = util.Int32(1)
+		switch k.Spec.DeployArch {
+		case "Master-Slave":
+			k.Spec.InstanceSet.Replicas = util.Int32(2)
+		case "Master-Replica":
+			k.Spec.InstanceSet.Replicas = util.Int32(3)
+		case "MGR":
+			k.Spec.InstanceSet.Replicas = util.Int32(3)
+		default:
+			k.Spec.InstanceSet.Replicas = util.Int32(1)
+		}
 	}
 }
 
