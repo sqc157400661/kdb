@@ -233,7 +233,7 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 			Protocol:      corev1.ProtocolTCP,
 		}},
 
-		SecurityContext: security.InitRestrictedSecurityContext(),
+		SecurityContext: security.InitLegacySecurityContext(),
 		VolumeMounts:    mounts,
 	})
 	if instanceSet.SidecarContainer.Image == "" {
@@ -294,7 +294,7 @@ func mysqlExporterContainer(instance *v1.KDBInstance, instanceSet shared.Instanc
 			ContainerPort: 9104,
 			Protocol:      corev1.ProtocolTCP,
 		}},
-		SecurityContext: security.InitRestrictedSecurityContext(),
+		SecurityContext: security.InitLegacySecurityContext(),
 		VolumeMounts:    mysqlExporterVolumeMounts(mounts),
 	}
 }

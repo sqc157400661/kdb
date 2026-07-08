@@ -10,6 +10,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/topology"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps/clickhouse"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps/mysql"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps/pg"
 	appsv1 "k8s.io/api/apps/v1"
@@ -69,17 +70,19 @@ func (r *KDBInstanceReconciler) Reconcile(
 	if err = topology.ValidateInstanceSpec(kdbInstance); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err = topology.ValidateClickHouseSpec(kdbInstance, nil); err != nil {
+		return reconcile.Result{}, err
+	}
+	if err = topology.ValidateClickHouseObservedStatus(kdbInstance); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	// if the reconcile has been stopped,skip it
 	kube.AbortWhen(rc.IsStopReconcile(), "instance is stop reconcile, skipped")(task)
 
-	var stepManager steps.InstanceStepper
-	if naming.IsMySQLEngine(kdbInstance) {
-		fmt.Println("[debug] mysql engnie")
-		stepManager = &mysql.InstanceStepManager{}
-	} else {
-		fmt.Println("[debug] pg engnie")
-		stepManager = &pg.InstanceStepManager{}
+	stepManager, err := NewInstanceStepManager(kdbInstance)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 	// activate the defer task for updating instance and status changes after all modifications are completed
 	stepManager.PatchKDBInstanceStatus()(task, true)
@@ -101,15 +104,28 @@ func (r *KDBInstanceReconciler) Reconcile(
 	return kube.NewExecutor(logger).Execute(rc, task)
 }
 
+func NewInstanceStepManager(kdbInstance *v1.KDBInstance) (steps.InstanceStepper, error) {
+	switch {
+	case naming.IsMySQLEngine(kdbInstance):
+		return &mysql.InstanceStepManager{}, nil
+	case naming.IsClickHouseEngine(kdbInstance):
+		return &clickhouse.InstanceStepManager{}, nil
+	case naming.IsPGEngine(kdbInstance):
+		return &pg.InstanceStepManager{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported instance engine: %s", naming.Engine(kdbInstance))
+	}
+}
+
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;patch;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;get;list;watch
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=delete;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;patch;update;watch

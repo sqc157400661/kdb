@@ -28,6 +28,7 @@ const (
 	MySQLEngine      = "mysql"
 	PostgresEngine   = "postgresql"
 	PostgresEnginePG = "pg"
+	ClickHouseEngine = "clickhouse"
 )
 
 const (
@@ -113,6 +114,8 @@ func GetPortByEngine(engine string) int32 {
 		return 3306
 	case PostgresEngine, PostgresEnginePG:
 		return 5432
+	case ClickHouseEngine:
+		return ClickHouseHTTPPort()
 	}
 	return 0
 }
@@ -134,6 +137,10 @@ func IsPGEngine(instance *v1.KDBInstance) bool {
 		return true
 	}
 	return false
+}
+
+func IsClickHouseEngine(instance *v1.KDBInstance) bool {
+	return strings.ToLower(Engine(instance)) == ClickHouseEngine
 }
 
 // EngineVersion return instance engine major version.

@@ -83,6 +83,10 @@ type KDBInstanceSpec struct {
 	// +optional
 	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
 
+	// ClickHouse contains ClickHouse engine-specific settings.
+	// +optional
+	ClickHouse *ClickHouseSpec `json:"clickhouse,omitempty"`
+
 	// Shutdown requests a logical stop of the KDB instance.
 	// When true, StatefulSet pods are scaled to zero while PVCs and other
 	// persistent resources remain in place for a later start.
@@ -113,9 +117,17 @@ type KDBInstanceStatus struct {
 	// +optional
 	PVCPhase corev1.PersistentVolumeClaimPhase `json:"pvcPhase,omitempty"`
 
+	// Phase is the high-level lifecycle state of the instance.
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
 	// PostgreSQL contains observed PostgreSQL runtime state.
 	// +optional
 	PostgreSQL *PostgreSQLStatus `json:"postgresql,omitempty"`
+
+	// ClickHouse contains observed ClickHouse runtime state.
+	// +optional
+	ClickHouse *ClickHouseStatus `json:"clickhouse,omitempty"`
 
 	// Proxy contains observed state of the instance-level proxy layer.
 	// +optional

@@ -26,6 +26,13 @@ type GlobalConfig struct {
 	PostgreSQLInstanceConfig InstanceConfig        `json:"postgresql_instance_config" yaml:"postgresql_instance_config"`
 	HostResolveMode          string                `json:"host_resolve_mode" yaml:"host_resolve_mode"`
 	ParameterReport          ParameterReportConfig `json:"parameter_report" yaml:"parameter_report"`
+	StorageProfiles          map[string]StorageProfile `json:"storage_profiles,omitempty" yaml:"storage_profiles,omitempty"`
+}
+
+type StorageProfile struct {
+	StorageClass string `json:"storage_class" yaml:"storage_class"`
+	AllowExpansion bool `json:"allow_expansion,omitempty" yaml:"allow_expansion,omitempty"`
+	Local bool `json:"local,omitempty" yaml:"local,omitempty"`
 }
 
 type ParameterReportConfig struct {

@@ -12,8 +12,10 @@ import (
 	conf "github.com/sqc157400661/kdb/pkg/config"
 	"github.com/sqc157400661/kdb/pkg/controller"
 	"github.com/sqc157400661/kdb/pkg/featuregate"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+        "k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -91,6 +93,7 @@ func NewOperatorCommand() *cobra.Command {
 				setupLog.Error(err, "unable to start manager")
 				utilruntime.Must(err)
 			}
+                        logOperatorStartup(operatorOptions, mgr)
 
 			err = addControllersToManager(mgr)
 			if err != nil {
@@ -142,11 +145,21 @@ func createScheme() (*runtime.Scheme, error) {
 	if err := clientgoscheme.AddToScheme(pgoScheme); err != nil {
 		return nil, err
 	}
+        setupLog.Info("registered kubernetes core scheme")
 
 	// add custom resource types to the default scheme
 	if err := v1.AddToScheme(pgoScheme); err != nil {
 		return nil, err
 	}
+        setupLog.Info("registered kdb api scheme",
+                "groupVersion", v1.GroupVersion.String(),
+                "kinds", []string{
+                        v1.KDBInstanceKindName,
+                        v1.KDBClusterKindName,
+                        "KDBLogSystem",
+                        "KDBMonitoringStack",
+                },
+        )
 
 	return pgoScheme, nil
 }
@@ -184,6 +197,42 @@ func createManager(opt *Options, scheme *runtime.Scheme) (manager.Manager, error
 	})
 }
 
+func logOperatorStartup(opt *Options, mgr manager.Manager) {
+        setupLog.Info("operator startup configuration",
+                "namespace", conf.K8SNamespace,
+                "metricsAddr", opt.MetricsAddr,
+                "probeAddr", opt.ProbeAddr,
+                "listenPort", opt.ListenPort,
+                "webhookListenPort", opt.WebhookListenPort,
+                "leaderElection", opt.LeaderElection,
+                "leaderElectionNamespace", opt.LeaderElectionNamespace,
+                "maxConcurrentReconciles", opt.MaxConcurrentReconciles,
+                "featureGates", opt.FeatureGates,
+        )
+        logDiscoveredKDBResources(mgr)
+}
+
+func logDiscoveredKDBResources(mgr manager.Manager) {
+        client, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+        if err != nil {
+                setupLog.Error(err, "create discovery client failed")
+                return
+        }
+        resources, err := client.ServerResourcesForGroupVersion(v1.GroupVersion.String())
+        if err != nil {
+                setupLog.Error(err, "discover kdb api resources failed",
+                        "groupVersion", v1.GroupVersion.String(),
+                        "expectedCRDs", expectedKDBCRDs(),
+                )
+                return
+        }
+        setupLog.Info("discovered kdb api resources",
+                "groupVersion", resources.GroupVersion,
+                "resources", apiResourceNames(resources.APIResources),
+                "expectedCRDs", expectedKDBCRDs(),
+        )
+}
+
 // addControllersToManager adds all KDB-Operator controllers to the provided controller
 // runtime manager.
 func addControllersToManager(mgr manager.Manager) (err error) {
@@ -201,6 +250,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBInstance controller")
 		return
 	}
+        setupLog.Info("registered controller",
+                "controller", controller.KDBInstanceControllerName,
+                "kind", v1.KDBInstanceKindName,
+        )
 	if err = (&controller.KDBClusterReconciler{
 		ReconcileHelper: helper,
 		Owner:           controller.KDBClusterControllerName,
@@ -209,6 +262,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBCluster controller")
 		return
 	}
+        setupLog.Info("registered controller",
+                "controller", controller.KDBClusterControllerName,
+                "kind", v1.KDBClusterKindName,
+        )
 	if err = (&controller.KDBLogSystemReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -217,6 +274,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBLogSystem controller")
 		return
 	}
+        setupLog.Info("registered controller",
+                "controller", controller.KDBLogSystemControllerName,
+                "kind", "KDBLogSystem",
+        )
 	if err = (&controller.KDBMonitoringStackReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -226,5 +287,26 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBMonitoringStack controller")
 		return
 	}
+        setupLog.Info("registered controller",
+                "controller", controller.KDBMonitoringStackControllerName,
+                "kind", "KDBMonitoringStack",
+        )
 	return
+}
+
+func expectedKDBCRDs() []string {
+        return []string{
+                "kdbclusters.kdb.com",
+                "kdbinstances.kdb.com",
+                "kdblogsystems.kdb.com",
+                "kdbmonitoringstacks.kdb.com",
+        }
+}
+
+func apiResourceNames(resources []metav1.APIResource) []string {
+        names := make([]string, 0, len(resources))
+        for _, resource := range resources {
+                names = append(names, resource.Name)
+        }
+        return names
 }

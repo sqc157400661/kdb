@@ -508,6 +508,15 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ScaleDownInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			if naming.IsMySQLEngine(rc.GetInstance()) {
+				rolling, err := rolloutOutdatedMySQLPod(rc)
+				if err != nil {
+					return flow.Error(err, "roll out outdated mysql pod err")
+				}
+				if rolling {
+					return flow.RetryAfter(5*time.Second, "mysql pod rollout in progress")
+				}
+			}
 			observedInstances := rc.GetObservedRunner()
 			namesToKeep := getNamesNeedToKeep(rc)
 			for _, ins := range observedInstances.List {
@@ -520,6 +529,55 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 			}
 			return flow.Pass()
 		})
+}
+
+// rolloutOutdatedMySQLPod advances an OnDelete StatefulSet update one ready Pod
+// at a time. Replica Pods are replaced before the primary so enabling an
+// exporter or changing another Pod-template field does not restart every MySQL
+// member at once.
+func rolloutOutdatedMySQLPod(rc *context.InstanceContext) (bool, error) {
+	observedInstances := rc.GetObservedRunner()
+	instance := rc.GetInstance()
+	if observedInstances == nil || instance == nil || instance.Spec.InstanceSet.Replicas == nil {
+		return false, nil
+	}
+
+	desired := int(*instance.Spec.InstanceSet.Replicas)
+	ready := 0
+	for _, item := range observedInstances.List {
+		if item != nil && len(item.Pods) == 1 && util.IsPodReady(item.Pods[0]) {
+			ready++
+		}
+	}
+	if ready < desired {
+		return false, nil
+	}
+
+	rollout := func(primary bool) (bool, error) {
+		for _, item := range observedInstances.List {
+			if item == nil || len(item.Pods) != 1 || naming.IsMasterPod(item.Pods[0]) != primary {
+				continue
+			}
+			matches, known := item.PodMatchesPodTemplate()
+			if !known || matches {
+				continue
+			}
+			pod := item.Pods[0]
+			uid := pod.GetUID()
+			version := pod.GetResourceVersion()
+			exactly := client.Preconditions{UID: &uid, ResourceVersion: &version}
+			if err := rc.Client().Delete(rc.Context(), pod, exactly); err != nil {
+				return true, client.IgnoreNotFound(err)
+			}
+			return true, nil
+		}
+		return false, nil
+	}
+
+	if rolling, err := rollout(false); rolling || err != nil {
+		return rolling, err
+	}
+	return rollout(true)
 }
 
 func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {

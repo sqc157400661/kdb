@@ -21,13 +21,13 @@ func InitPodSecurityContext() *corev1.PodSecurityContext {
 func InitRestrictedSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		// Prevent any container processes from gaining privileges.
-		AllowPrivilegeEscalation: util.Bool(true),
+		AllowPrivilegeEscalation: util.Bool(false),
 
 		// Drop any capabilities granted by the container runtime.
 		// This must be uppercase to pass Pod Security Admission.
 		// - https://releases.k8s.io/v1.24.0/staging/src/k8s.io/pod-security-admission/policy/check_capabilities_restricted.go
 		Capabilities: &corev1.Capabilities{
-			Add: []corev1.Capability{"LINUX_IMMUTABLE", "NET_ADMIN", "SYS_ADMIN"},
+			Drop: []corev1.Capability{"ALL"},
 		},
 
 		// Processes in privileged containers are essentially root on the host.
@@ -36,9 +36,9 @@ func InitRestrictedSecurityContext() *corev1.SecurityContext {
 		//RunAsUser: helper.Int64(26),
 
 		// Limit filesystem changes to volumes that are mounted read-write.
-		//ReadOnlyRootFilesystem: helper.Bool(true),
+		ReadOnlyRootFilesystem: util.Bool(true),
 		// Fail to start the container if its image runs as UID 0 (root).
-		//RunAsNonRoot: helper.Bool(false),
+		RunAsNonRoot: util.Bool(true),
 	}
 }
 

@@ -41,6 +41,7 @@ rules:
   resources:
   - pods
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -210,8 +211,12 @@ rules:
   resources:
   - statefulsets
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - batch

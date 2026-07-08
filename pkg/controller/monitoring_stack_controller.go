@@ -38,6 +38,7 @@ const (
 	defaultGrafanaImage             = "grafana/grafana:12.0.1"
 	prometheusOperatorDeployment    = "prometheus-operator"
 	prometheusService               = "kdb-prometheus"
+	kubeletScrapeSecret             = "kdb-kubelet-scrape-config"
 	alertmanagerService             = "kdb-alertmanager"
 	grafanaDeployment               = "kdb-grafana"
 )
@@ -52,7 +53,7 @@ type KDBMonitoringStackReconciler struct {
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=configmaps;pods;serviceaccounts;services,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=configmaps;pods;secrets;serviceaccounts;services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings;roles;rolebindings,verbs=create;get;list;patch;update;watch
@@ -254,6 +255,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 	retention := firstNonEmptyMonitoring(stack.Spec.Prometheus.Retention, "15d")
 	manifests := []map[string]any{
 		monitoringNamespaceManifest(namespace),
+		kubeletScrapeSecretManifest(namespace, monitoringStackLabels("prometheus")),
 		{
 			"apiVersion": "v1",
 			"kind":       "ServiceAccount",
@@ -271,7 +273,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 				"labels": monitoringStackLabels("prometheus"),
 			},
 			"rules": []map[string]any{
-				{"apiGroups": []string{""}, "resources": []string{"nodes", "nodes/metrics", "services", "endpoints", "pods", "namespaces", "configmaps"}, "verbs": []string{"get", "list", "watch"}},
+				{"apiGroups": []string{""}, "resources": []string{"nodes", "nodes/metrics", "nodes/proxy", "services", "endpoints", "pods", "namespaces", "configmaps"}, "verbs": []string{"get", "list", "watch"}},
 				{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"ingresses"}, "verbs": []string{"get", "list", "watch"}},
 				{"nonResourceURLs": []string{"/metrics"}, "verbs": []string{"get"}},
 			},
@@ -300,6 +302,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 				"replicas":                        promReplicas,
 				"serviceAccountName":              "kdb-prometheus",
 				"retention":                       retention,
+				"additionalScrapeConfigs":         map[string]any{"name": kubeletScrapeSecret, "key": "scrape-configs.yaml"},
 				"resources":                       monitoringResourceRequirements(stack.Spec.Prometheus.Resources, map[string]string{"cpu": "100m", "memory": "256Mi"}, map[string]string{"cpu": "1", "memory": "1Gi"}),
 				"serviceMonitorSelector":          map[string]any{"matchLabels": selectorLabel},
 				"serviceMonitorNamespaceSelector": map[string]any{},
@@ -337,6 +340,50 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 	}
 	return manifests
 }
+
+func kubeletScrapeSecretManifest(namespace string, labels map[string]string) map[string]any {
+	return map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata": map[string]any{
+			"name":      kubeletScrapeSecret,
+			"namespace": namespace,
+			"labels":    labels,
+		},
+		"stringData": map[string]string{"scrape-configs.yaml": kubeletScrapeConfig},
+		"type":       "Opaque",
+	}
+}
+
+const kubeletScrapeConfig = `- job_name: kdb-kubelet
+  scheme: https
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  kubernetes_sd_configs:
+    - role: node
+  relabel_configs:
+    - target_label: __address__
+      replacement: kubernetes.default.svc:443
+    - source_labels: [__meta_kubernetes_node_name]
+      target_label: __metrics_path__
+      regex: (.+)
+      replacement: /api/v1/nodes/$1/proxy/metrics
+- job_name: kdb-cadvisor
+  scheme: https
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  kubernetes_sd_configs:
+    - role: node
+  relabel_configs:
+    - target_label: __address__
+      replacement: kubernetes.default.svc:443
+    - source_labels: [__meta_kubernetes_node_name]
+      target_label: __metrics_path__
+      regex: (.+)
+      replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+`
 
 func monitoringServiceManifest(namespace, name, component string, selector map[string]string, port int64) map[string]any {
 	return map[string]any{

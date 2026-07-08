@@ -301,7 +301,7 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		Env:             append(envs, instanceSet.MainContainer.Env...),
 		Image:           instanceSet.MainContainer.Image,
 		Resources:       instanceSet.MainContainer.Resources,
-		SecurityContext: security.InitRestrictedSecurityContext(),
+		SecurityContext: security.InitLegacySecurityContext(),
 		Ports: []corev1.ContainerPort{
 			{Name: naming.PortDatabase, ContainerPort: port, Protocol: corev1.ProtocolTCP},
 			{Name: "patroni", ContainerPort: 8008, Protocol: corev1.ProtocolTCP},
@@ -441,7 +441,7 @@ func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.Inst
 			ContainerPort: 9187,
 			Protocol:      corev1.ProtocolTCP,
 		}},
-		SecurityContext: security.InitRestrictedSecurityContext(),
+		SecurityContext: security.InitLegacySecurityContext(),
 		VolumeMounts:    postgresExporterVolumeMounts(mounts),
 	}
 }
