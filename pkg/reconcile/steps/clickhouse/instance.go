@@ -184,6 +184,7 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 							secret.Data[key] = value
 						}
 					}
+					secret.Data["admin-username"] = generated["admin-username"]
 				case apierrors.IsNotFound(err):
 					secret.Data, err = newClickHouseCredentialData()
 					if err != nil {

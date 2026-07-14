@@ -16,6 +16,7 @@ const (
 	clickHouseRemoteServersKey = "remote_servers.xml"
 	clickHouseMacrosKey        = "macros.xml"
 	clickHouseKeeperKey        = "keeper.xml"
+	clickHouseNetworkKey       = "network.xml"
 	clickHouseInterserverKey   = "interserver.xml"
 	clickHouseStoragePolicyKey = "storage_policy.xml"
 	clickHouseUsersKey         = "users.xml"
@@ -61,6 +62,7 @@ func buildClickHouseConfigMaps(instance *v1.KDBInstance) ([]*corev1.ConfigMap, e
 			clickHouseRemoteServersKey: naming.XMLGeneratedWarning + renderClickHouseRemoteServers(instance, plans, group.Name),
 			clickHouseMacrosKey: naming.XMLGeneratedWarning + renderClickHouseMacros(),
 			clickHouseKeeperKey: naming.XMLGeneratedWarning + keeperConfig,
+			clickHouseNetworkKey: naming.XMLGeneratedWarning + renderClickHouseNetwork(),
 			clickHouseInterserverKey: naming.XMLGeneratedWarning + "<clickhouse><interserver_http_host from_env=\"POD_IP\"/></clickhouse>\n",
 			clickHouseStoragePolicyKey: naming.XMLGeneratedWarning + "<clickhouse><storage_configuration><policies><default><volumes><default><disk>default</disk></default></volumes></default></policies></storage_configuration></clickhouse>\n",
 			clickHouseUsersKey: naming.XMLGeneratedWarning + renderStandaloneUsers(),
@@ -95,7 +97,7 @@ func buildStandaloneSecret(instance *v1.KDBInstance) (*corev1.Secret, error) {
 
 func newClickHouseCredentialData() (map[string][]byte, error) {
 	data := map[string][]byte{
-		"admin-username":   []byte("default"),
+		"admin-username":   []byte("kdb_admin"),
 		"schema-username":  []byte("kdb_schema"),
 		"serving-username": []byte("kdb_serving"),
 		"adhoc-username":   []byte("kdb_adhoc"),
@@ -214,6 +216,13 @@ func renderStandaloneMacros(instance *v1.KDBInstance, group v1.ClickHouseCompute
 	return renderClickHouseMacros()
 }
 
+func renderClickHouseNetwork() string {
+	return `<clickhouse>
+  <listen_host>0.0.0.0</listen_host>
+</clickhouse>
+`
+}
+
 func renderClickHouseMacros() string {
 	return `<clickhouse>
   <macros>
@@ -237,6 +246,14 @@ func renderStandaloneUsers() string {
       <quota>default</quota>
       <access_management>1</access_management>
     </default>
+	    <kdb_admin>
+	      <password from_env="CLICKHOUSE_ADMIN_PASSWORD"/>
+      <profile>default</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT ALL ON *.* WITH GRANT OPTION</query>
+      </grants>
+    </kdb_admin>
 	    <kdb_schema>
 	      <password from_env="CLICKHOUSE_SCHEMA_PASSWORD"/>
       <profile>default</profile>

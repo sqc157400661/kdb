@@ -1,6 +1,8 @@
 export GO111MODULE := on
-GOOS := $(if $(GOOS),$(GOOS),linux)
-GOARCH := $(if $(GOARCH),$(GOARCH),$(shell go env GOARCH))
+HOST_GOARCH_RAW := $(shell go env GOARCH 2>/dev/null || uname -m)
+HOST_GOARCH := $(if $(filter x86_64,$(HOST_GOARCH_RAW)),amd64,$(if $(filter aarch64,$(HOST_GOARCH_RAW)),arm64,$(HOST_GOARCH_RAW)))
+GOOS ?= linux
+GOARCH ?= $(HOST_GOARCH)
 GOENV  := CGO_ENABLED=0 GO15VENDOREXPERIMENT="1" GOOS=$(GOOS) GOARCH=$(GOARCH)
 GO     := $(GOENV) go build
 GOTEST := CGO_ENABLED=1 go test -v -cover
@@ -145,7 +147,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versionsmanager
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
+CONTROLLER_TOOLS_VERSION ?= v0.10.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize

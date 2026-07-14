@@ -43,6 +43,29 @@ func TestBuildStandaloneStatefulSet(t *testing.T) {
 	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], clickHouseDataMountPath) {
 		t.Fatalf("database container should mount %s", clickHouseDataMountPath)
 	}
+	if !podHasVolume(sts.Spec.Template.Spec.Volumes, clickHouseTmpVolumeName) {
+		t.Fatalf("pod should define writable %s emptyDir volume", clickHouseTmpVolumeName)
+	}
+	if !podHasVolume(sts.Spec.Template.Spec.Volumes, clickHouseLogVolumeName) {
+		t.Fatalf("pod should define writable %s emptyDir volume", clickHouseLogVolumeName)
+	}
+	for _, container := range sts.Spec.Template.Spec.Containers {
+		if !containerMountsPath(container, "/tmp") {
+			t.Fatalf("%s container should mount writable /tmp", container.Name)
+		}
+	}
+	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], clickHouseLogMountPath) {
+		t.Fatalf("database container should mount %s", clickHouseLogMountPath)
+	}
+	if containerHasEnv(sts.Spec.Template.Spec.Containers[0], "CLICKHOUSE_PASSWORD") {
+		t.Fatalf("database container must not set CLICKHOUSE_PASSWORD because the ClickHouse entrypoint writes users.d/default-user.xml when it is present")
+	}
+	if !containerHasEnv(sts.Spec.Template.Spec.Containers[0], "CLICKHOUSE_ADMIN_PASSWORD") {
+		t.Fatalf("database container should keep CLICKHOUSE_ADMIN_PASSWORD for users.xml from_env")
+	}
+	if !containerHasEnv(sts.Spec.Template.Spec.Containers[1], "CLICKHOUSE_PASSWORD") {
+		t.Fatalf("sidecar container should keep CLICKHOUSE_PASSWORD for local client access")
+	}
 }
 
 func TestBuildStandaloneStatefulSetHonorsShutdown(t *testing.T) {
@@ -70,6 +93,7 @@ func TestBuildStandaloneConfigMapAndSecret(t *testing.T) {
 		clickHouseRemoteServersKey,
 		clickHouseMacrosKey,
 		clickHouseKeeperKey,
+		clickHouseNetworkKey,
 		clickHouseInterserverKey,
 		clickHouseStoragePolicyKey,
 		clickHouseUsersKey,
@@ -84,6 +108,12 @@ func TestBuildStandaloneConfigMapAndSecret(t *testing.T) {
 	if !strings.Contains(cm.Data[clickHouseRemoteServersKey], "kdb_ingest_group") {
 		t.Fatalf("remote_servers should include kdb_ingest_group")
 	}
+	if !strings.Contains(cm.Data[clickHouseNetworkKey], "<listen_host>0.0.0.0</listen_host>") {
+		t.Fatalf("network config should allow kubelet probes and Services to reach ClickHouse on the Pod IP")
+	}
+	if !strings.Contains(cm.Data[clickHouseUsersKey], "<kdb_admin>") || !strings.Contains(cm.Data[clickHouseUsersKey], "GRANT ALL ON *.* WITH GRANT OPTION") {
+		t.Fatalf("users config should define the dedicated access-management account with grant option")
+	}
 
 	secret, err := buildStandaloneSecret(instance)
 	if err != nil {
@@ -94,6 +124,9 @@ func TestBuildStandaloneConfigMapAndSecret(t *testing.T) {
 	}
 	if _, ok := secret.Data["schema-username"]; !ok {
 		t.Fatalf("secret should include schema account material")
+	}
+	if string(secret.Data["admin-username"]) != "kdb_admin" {
+		t.Fatalf("admin username = %q, want kdb_admin", string(secret.Data["admin-username"]))
 	}
 }
 
@@ -197,6 +230,24 @@ func chTestInt32(v int32) *int32 {
 func containerMountsPath(container corev1.Container, path string) bool {
 	for _, mount := range container.VolumeMounts {
 		if mount.MountPath == path {
+			return true
+		}
+	}
+	return false
+}
+
+func podHasVolume(volumes []corev1.Volume, name string) bool {
+	for _, volume := range volumes {
+		if volume.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func containerHasEnv(container corev1.Container, name string) bool {
+	for _, env := range container.Env {
+		if env.Name == name {
 			return true
 		}
 	}

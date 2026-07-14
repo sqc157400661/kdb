@@ -10,6 +10,7 @@ import (
 	"time"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	monitoringassets "github.com/sqc157400661/kdb/internal/monitoring/assets"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,7 +36,11 @@ const (
 	defaultMonitoringStackNamespace = "kdb-observability"
 	defaultMonitoringStackName      = "kdb"
 	defaultMonitoringOperatorVer    = "v0.92.0"
-	defaultGrafanaImage             = "grafana/grafana:12.0.1"
+	defaultPrometheusOperatorImage  = "kdbdeveloper/prometheus-operator:v0.92.0"
+	defaultPrometheusReloaderImage  = "kdbdeveloper/prometheus-config-reloader:v0.92.0"
+	defaultPrometheusImage          = "kdbdeveloper/prometheus:v3.12.0"
+	defaultAlertmanagerImage        = "kdbdeveloper/alertmanager:v0.33.0"
+	defaultGrafanaImage             = "kdbdeveloper/grafana:12.0.1"
 	prometheusOperatorDeployment    = "prometheus-operator"
 	prometheusService               = "kdb-prometheus"
 	kubeletScrapeSecret             = "kdb-kubelet-scrape-config"
@@ -106,6 +111,13 @@ func (r *KDBMonitoringStackReconciler) Reconcile(ctx context.Context, request ct
 }
 
 func (r *KDBMonitoringStackReconciler) loadPrometheusOperatorBundle(ctx context.Context, stack *v1.KDBMonitoringStack) ([]map[string]any, error) {
+	if stack == nil || strings.TrimSpace(stack.Spec.BundleURL) == "" {
+		data, err := monitoringassets.FS.ReadFile(monitoringassets.PrometheusOperatorV0920Bundle)
+		if err != nil {
+			return nil, fmt.Errorf("read embedded prometheus operator bundle: %w", err)
+		}
+		return splitMonitoringYAML(data)
+	}
 	client := r.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 45 * time.Second}
@@ -175,6 +187,9 @@ func rewriteMonitoringBundle(manifests []map[string]any, namespace string) {
 		if monitoringKindNamespaced(obj.GetKind()) {
 			obj.SetNamespace(namespace)
 		}
+		if obj.GetKind() == "Deployment" && obj.GetName() == prometheusOperatorDeployment {
+			rewritePrometheusOperatorDeploymentImages(obj)
+		}
 		if obj.GetKind() == "ClusterRoleBinding" {
 			subjects, ok, _ := unstructured.NestedSlice(obj.Object, "subjects")
 			if !ok {
@@ -189,6 +204,31 @@ func rewriteMonitoringBundle(manifests []map[string]any, namespace string) {
 			_ = unstructured.SetNestedSlice(obj.Object, subjects, "subjects")
 		}
 	}
+}
+
+func rewritePrometheusOperatorDeploymentImages(obj *unstructured.Unstructured) {
+	containers, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
+	if !ok {
+		return
+	}
+	for i := range containers {
+		container, ok := containers[i].(map[string]any)
+		if !ok || container["name"] != "prometheus-operator" {
+			continue
+		}
+		container["image"] = defaultPrometheusOperatorImage
+		args, ok, _ := unstructured.NestedStringSlice(container, "args")
+		if !ok {
+			continue
+		}
+		for j := range args {
+			if strings.HasPrefix(args[j], "--prometheus-config-reloader=") {
+				args[j] = "--prometheus-config-reloader=" + defaultPrometheusReloaderImage
+			}
+		}
+		_ = unstructured.SetNestedStringSlice(container, args, "args")
+	}
+	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
 func applyMonitoringManifest(ctx context.Context, dynamicClient dynamic.Interface, manifest map[string]any) error {
@@ -300,6 +340,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 			},
 			"spec": map[string]any{
 				"replicas":                        promReplicas,
+				"image":                           defaultPrometheusImage,
 				"serviceAccountName":              "kdb-prometheus",
 				"retention":                       retention,
 				"additionalScrapeConfigs":         map[string]any{"name": kubeletScrapeSecret, "key": "scrape-configs.yaml"},
@@ -329,6 +370,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 			},
 			"spec": map[string]any{
 				"replicas":  alertReplicas,
+				"image":     defaultAlertmanagerImage,
 				"resources": monitoringResourceRequirements(stack.Spec.Alertmanager.Resources, map[string]string{"cpu": "50m", "memory": "64Mi"}, map[string]string{"cpu": "500m", "memory": "256Mi"}),
 			},
 		},
@@ -662,7 +704,7 @@ func monitoringBundleURL(stack *v1.KDBMonitoringStack) string {
 		return strings.TrimSpace(stack.Spec.BundleURL)
 	}
 	version := monitoringOperatorVersion(stack)
-	return fmt.Sprintf("https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/%s/bundle.yaml", version)
+	return fmt.Sprintf("embedded://prometheus-operator/%s/bundle.yaml", version)
 }
 
 func monitoringStackLabels(component string) map[string]string {

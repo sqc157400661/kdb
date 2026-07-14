@@ -22,7 +22,10 @@ const (
 	clickHouseSidecarVolumeName     = "clickhouse-sidecar-config"
 	clickHouseSecretVolumeName      = "clickhouse-secret"
 	clickHouseRuntimeVolumeName     = "clickhouse-runtime"
+	clickHouseTmpVolumeName         = "clickhouse-tmp"
+	clickHouseLogVolumeName         = "clickhouse-log"
 	clickHouseDataMountPath         = "/var/lib/clickhouse"
+	clickHouseLogMountPath          = "/var/log/clickhouse-server"
 	clickHouseConfigMountPath       = "/etc/clickhouse-server"
 	clickHouseSidecarConfigPath     = "/etc/kdb-sidecar"
 	clickHouseBackupRunnerContainer = "clickhouse-backup"
@@ -220,6 +223,7 @@ func standaloneVolumes(instance *v1.KDBInstance, group string) []corev1.Volume {
 					{Key: clickHouseRemoteServersKey, Path: "remote_servers.xml"},
 					{Key: clickHouseMacrosKey, Path: "macros.xml"},
 					{Key: clickHouseKeeperKey, Path: "keeper.xml"},
+					{Key: clickHouseNetworkKey, Path: "network.xml"},
 					{Key: clickHouseInterserverKey, Path: "interserver.xml"},
 					{Key: clickHouseStoragePolicyKey, Path: "storage_policy.xml"},
 				},
@@ -253,6 +257,14 @@ func standaloneVolumes(instance *v1.KDBInstance, group string) []corev1.Volume {
 			Name:         clickHouseRuntimeVolumeName,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
+		{
+			Name:         clickHouseTmpVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+		{
+			Name:         clickHouseLogVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
 	}
 }
 
@@ -261,17 +273,19 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 		{Name: clickHouseDataVolumeName, MountPath: clickHouseDataMountPath},
 		{Name: clickHouseSecretVolumeName, MountPath: "/etc/clickhouse-secret", ReadOnly: true},
 		{Name: clickHouseRuntimeVolumeName, MountPath: "/var/run/kdb"},
+		{Name: clickHouseTmpVolumeName, MountPath: "/tmp"},
 	}
 	databaseMounts := append([]corev1.VolumeMount{}, sharedMounts...)
 	databaseMounts = append(databaseMounts,
 		corev1.VolumeMount{Name: clickHouseConfigVolumeName, MountPath: clickHouseConfigMountPath + "/config.d", ReadOnly: true},
 		corev1.VolumeMount{Name: clickHouseUsersVolumeName, MountPath: clickHouseConfigMountPath + "/users.d", ReadOnly: true},
+		corev1.VolumeMount{Name: clickHouseLogVolumeName, MountPath: clickHouseLogMountPath},
 	)
 	database := corev1.Container{
 		Name:            naming.ContainerDatabase,
 		Command:         instanceSet.MainContainer.Command,
 		Args:            instanceSet.MainContainer.Args,
-		Env:             append(clickHouseBaseEnv(instance, plan), instanceSet.MainContainer.Env...),
+		Env:             append(clickHouseServerEnv(instance, plan), instanceSet.MainContainer.Env...),
 		Image:           instanceSet.MainContainer.Image,
 		Resources:       instanceSet.MainContainer.Resources,
 		SecurityContext: security.InitClickHouseSecurityContext(),
@@ -302,7 +316,7 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 		Name:            naming.ContainerSidecar,
 		Command:         sidecarCommand,
 		Args:            sidecarArgs,
-		Env:             append(clickHouseBaseEnv(instance, plan), instanceSet.SidecarContainer.Env...),
+		Env:             append(clickHouseClientEnv(instance, plan), instanceSet.SidecarContainer.Env...),
 		Image:           instanceSet.SidecarContainer.Image,
 		Resources:       instanceSet.SidecarContainer.Resources,
 		SecurityContext: security.InitClickHouseSecurityContext(),
@@ -329,7 +343,7 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 		Name:            clickHouseBackupRunnerContainer,
 		Image:           clickHouseBackupRunnerImage(instance, instanceSet),
 		Args:            []string{"server"},
-		Env: append(clickHouseBaseEnv(instance, plan),
+		Env: append(clickHouseClientEnv(instance, plan),
 			corev1.EnvVar{Name: "API_LISTEN", Value: "127.0.0.1:7171"},
 			corev1.EnvVar{Name: "CLICKHOUSE_CONFIG_DIR", Value: clickHouseConfigMountPath},
 		),
@@ -388,7 +402,7 @@ func backupRunnerProbe(failureThreshold, periodSeconds int32) *corev1.Probe {
 	}
 }
 
-func clickHouseBaseEnv(instance *v1.KDBInstance, plan clickHouseHostPlan) []corev1.EnvVar {
+func clickHouseServerEnv(instance *v1.KDBInstance, plan clickHouseHostPlan) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: "KDB_INSTANCE_NAME", Value: instance.Name},
 		{Name: "KDB_NAMESPACE", Value: instance.Namespace},
@@ -400,13 +414,18 @@ func clickHouseBaseEnv(instance *v1.KDBInstance, plan clickHouseHostPlan) []core
 		{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}},
 		{Name: "POD_IP", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"}}},
 		clickHouseSecretEnv("CLICKHOUSE_ADMIN_PASSWORD", "admin-password", instance),
-		{Name: "CLICKHOUSE_USERNAME", Value: "default"},
-		clickHouseSecretEnv("CLICKHOUSE_PASSWORD", "admin-password", instance),
-		{Name: "CLICKHOUSE_HOST", Value: "127.0.0.1"},
 		clickHouseSecretEnv("CLICKHOUSE_SCHEMA_PASSWORD", "schema-password", instance),
 		clickHouseSecretEnv("CLICKHOUSE_SERVING_PASSWORD", "serving-password", instance),
 		clickHouseSecretEnv("CLICKHOUSE_ADHOC_PASSWORD", "adhoc-password", instance),
 	}
+}
+
+func clickHouseClientEnv(instance *v1.KDBInstance, plan clickHouseHostPlan) []corev1.EnvVar {
+	return append(clickHouseServerEnv(instance, plan),
+		clickHouseSecretEnv("CLICKHOUSE_USERNAME", "admin-username", instance),
+		clickHouseSecretEnv("CLICKHOUSE_PASSWORD", "admin-password", instance),
+		corev1.EnvVar{Name: "CLICKHOUSE_HOST", Value: "127.0.0.1"},
+	)
 }
 
 func clickHouseSecretEnv(name, key string, instance *v1.KDBInstance) corev1.EnvVar {

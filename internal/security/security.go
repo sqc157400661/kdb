@@ -6,6 +6,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+const (
+	clickHouseUID int64 = 101
+	clickHouseGID int64 = 101
+)
+
 // InitPodSecurityContext returns a v1.PodSecurityContext with some defaults.
 func InitPodSecurityContext() *corev1.PodSecurityContext {
 	onRootMismatch := corev1.FSGroupChangeOnRootMismatch
@@ -40,6 +45,27 @@ func InitRestrictedSecurityContext() *corev1.SecurityContext {
 		// Fail to start the container if its image runs as UID 0 (root).
 		RunAsNonRoot: util.Bool(true),
 	}
+}
+
+// InitLegacySecurityContext returns the permissive container security context
+// required by legacy database images.
+func InitLegacySecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: util.Bool(true),
+		Capabilities: &corev1.Capabilities{
+			Add: []corev1.Capability{"LINUX_IMMUTABLE", "NET_ADMIN", "SYS_ADMIN"},
+		},
+		Privileged: util.Bool(false),
+	}
+}
+
+// InitClickHouseSecurityContext returns the container security context used by
+// ClickHouse components.
+func InitClickHouseSecurityContext() *corev1.SecurityContext {
+	sc := InitRestrictedSecurityContext()
+	sc.RunAsUser = util.Int64(clickHouseUID)
+	sc.RunAsGroup = util.Int64(clickHouseGID)
+	return sc
 }
 
 func InitSecurityContextForStartUp() *corev1.SecurityContext {

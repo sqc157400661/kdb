@@ -12,6 +12,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,7 +49,9 @@ type KDBLogSystemReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=daemonsets;deployments,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=kdb.com,resources=kdblogsystems,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kdb.com,resources=kdblogsystems/status,verbs=patch
 func (r *KDBLogSystemReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
@@ -82,6 +86,9 @@ func (r *KDBLogSystemReconciler) Reconcile(ctx context.Context, request ctrl.Req
 	}
 	deployment, err := r.reconcileDeployment(ctx, logSystem, configHash)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.reconcileCollectorRBAC(ctx, logSystem); err != nil {
 		return ctrl.Result{}, err
 	}
 	daemonSet, err := r.reconcileCollectorDaemonSet(ctx, logSystem, configHash)
@@ -215,9 +222,60 @@ func (r *KDBLogSystemReconciler) reconcileDeployment(ctx context.Context, logSys
 	return deploy, err
 }
 
+func (r *KDBLogSystemReconciler) reconcileCollectorRBAC(ctx context.Context, logSystem *v1.KDBLogSystem) error {
+	name := logSystemCollectorName(logSystem)
+	namespace := logSystemCollectorNamespace(logSystem)
+	labels := mergeLogSystemLabels(logSystemLabels(logSystem), map[string]string{
+		"app.kubernetes.io/component": "log-collector",
+	})
+
+	account := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, account, func() error {
+		if namespace == logSystem.Namespace {
+			if err := controllerutil.SetControllerReference(logSystem, account, r.Scheme); err != nil {
+				return err
+			}
+		}
+		account.Labels = labels
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	role := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		role.Labels = labels
+		role.Rules = []rbacv1.PolicyRule{{
+			APIGroups: []string{""},
+			Resources: []string{"pods", "namespaces", "nodes"},
+			Verbs:     []string{"get", "list", "watch"},
+		}}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, binding, func() error {
+		binding.Labels = labels
+		binding.RoleRef = rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "ClusterRole",
+			Name:     name,
+		}
+		binding.Subjects = []rbacv1.Subject{{
+			Kind:      rbacv1.ServiceAccountKind,
+			Name:      name,
+			Namespace: namespace,
+		}}
+		return nil
+	})
+	return err
+}
+
 func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context, logSystem *v1.KDBLogSystem, configHash string) (*appsv1.DaemonSet, error) {
-	name := firstNonEmptyLogSystem(logSystem.Spec.Collector.DaemonSet, logSystemResourceName(logSystem)+"-collector")
-	namespace := firstNonEmptyLogSystem(logSystem.Spec.Collector.Namespace, logSystem.Namespace)
+	name := logSystemCollectorName(logSystem)
+	namespace := logSystemCollectorNamespace(logSystem)
 	labels := mergeLogSystemLabels(logSystemLabels(logSystem), map[string]string{
 		"app.kubernetes.io/component": "log-collector",
 	})
@@ -230,52 +288,55 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 		"kdb.com/log-backend-id-safe": shortLogSystemHash([]byte(logSystem.Spec.BackendID + ":collector")),
 	}
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ds, func() error {
-		if namespace == logSystem.Namespace {
-			if err := controllerutil.SetControllerReference(logSystem, ds, r.Scheme); err != nil {
-				return err
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ds, func() error {
+			if namespace == logSystem.Namespace {
+				if err := controllerutil.SetControllerReference(logSystem, ds, r.Scheme); err != nil {
+					return err
+				}
 			}
-		}
-		ds.Labels = labels
-		if ds.Spec.Selector == nil {
-			ds.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
-		}
-		templateLabels := mergeLogSystemLabels(labels, ds.Spec.Selector.MatchLabels)
-		ds.Spec.Template.Labels = templateLabels
-		ds.Spec.Template.Annotations = map[string]string{"kdb.com/log-config-hash": configHash}
-		ds.Spec.Template.Spec.ServiceAccountName = "kdb"
-		ds.Spec.Template.Spec.Containers = []corev1.Container{{
-			Name:  "fluent-bit",
-			Image: firstNonEmptyLogSystem(logSystem.Spec.Collector.Image, "fluent/fluent-bit:3.0"),
-			Env: []corev1.EnvVar{
-				{Name: "KDB_LOG_BACKEND_ID", Value: logSystem.Spec.BackendID},
-				{Name: "KDB_LOG_BACKEND_TYPE", Value: firstNonEmptyLogSystem(logSystem.Spec.BackendType, defaultLogSystemBackendType)},
-				{Name: "KDB_LOG_CONFIG_HASH", Value: configHash},
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "backend-config", MountPath: "/etc/kdb/log-system", ReadOnly: true},
-				{Name: "backend-config", MountPath: "/fluent-bit/etc", ReadOnly: true},
-				{Name: "varlog", MountPath: "/var/log", ReadOnly: true},
-				{Name: "kubelet-pods", MountPath: "/var/lib/kubelet/pods", ReadOnly: true},
-			},
-		}}
-		ds.Spec.Template.Spec.Volumes = []corev1.Volume{
-			{
-				Name: "backend-config",
-				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: logSystemResourceName(logSystem)},
-				}},
-			},
-			{
-				Name:         "varlog",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/log"}},
-			},
-			{
-				Name:         "kubelet-pods",
-				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods"}},
-			},
-		}
-		return nil
+			ds.Labels = labels
+			if ds.Spec.Selector == nil {
+				ds.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
+			}
+			templateLabels := mergeLogSystemLabels(labels, ds.Spec.Selector.MatchLabels)
+			ds.Spec.Template.Labels = templateLabels
+			ds.Spec.Template.Annotations = map[string]string{"kdb.com/log-config-hash": configHash}
+			ds.Spec.Template.Spec.ServiceAccountName = name
+			ds.Spec.Template.Spec.Containers = []corev1.Container{{
+				Name:  "fluent-bit",
+				Image: firstNonEmptyLogSystem(logSystem.Spec.Collector.Image, "fluent/fluent-bit:3.0"),
+				Env: []corev1.EnvVar{
+					{Name: "KDB_LOG_BACKEND_ID", Value: logSystem.Spec.BackendID},
+					{Name: "KDB_LOG_BACKEND_TYPE", Value: firstNonEmptyLogSystem(logSystem.Spec.BackendType, defaultLogSystemBackendType)},
+					{Name: "KDB_LOG_CONFIG_HASH", Value: configHash},
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "backend-config", MountPath: "/etc/kdb/log-system", ReadOnly: true},
+					{Name: "backend-config", MountPath: "/fluent-bit/etc", ReadOnly: true},
+					{Name: "varlog", MountPath: "/var/log", ReadOnly: true},
+					{Name: "kubelet-pods", MountPath: "/var/lib/kubelet/pods", ReadOnly: true},
+				},
+			}}
+			ds.Spec.Template.Spec.Volumes = []corev1.Volume{
+				{
+					Name: "backend-config",
+					VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: logSystemResourceName(logSystem)},
+					}},
+				},
+				{
+					Name:         "varlog",
+					VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/log"}},
+				},
+				{
+					Name:         "kubelet-pods",
+					VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods"}},
+				},
+			}
+			return nil
+		})
+		return err
 	})
 	return ds, err
 }
@@ -442,6 +503,7 @@ func (r *KDBLogSystemReconciler) SetupWithManager(mgr manager.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&appsv1.DaemonSet{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
 }
@@ -478,6 +540,14 @@ func logSystemResourceName(logSystem *v1.KDBLogSystem) string {
 		return logSystem.Name
 	}
 	return fmt.Sprintf("kdb-log-%s", logSystem.Spec.BackendID)
+}
+
+func logSystemCollectorName(logSystem *v1.KDBLogSystem) string {
+	return firstNonEmptyLogSystem(logSystem.Spec.Collector.DaemonSet, logSystemResourceName(logSystem)+"-collector")
+}
+
+func logSystemCollectorNamespace(logSystem *v1.KDBLogSystem) string {
+	return firstNonEmptyLogSystem(logSystem.Spec.Collector.Namespace, logSystem.Namespace)
 }
 
 func logSystemSelectorLabels(logSystem *v1.KDBLogSystem) map[string]string {

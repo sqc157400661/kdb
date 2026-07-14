@@ -112,3 +112,17 @@ func TestRestrictedSecurityContext(t *testing.T) {
 		assert.Assert(t, *sc.ReadOnlyRootFilesystem == true)
 	}
 }
+
+func TestClickHouseSecurityContext(t *testing.T) {
+	sc := InitClickHouseSecurityContext()
+
+	if assert.Check(t, sc.RunAsNonRoot != nil) {
+		assert.Assert(t, *sc.RunAsNonRoot == true)
+	}
+	if assert.Check(t, sc.RunAsUser != nil) {
+		assert.Equal(t, *sc.RunAsUser, int64(101))
+	}
+	if assert.Check(t, sc.RunAsGroup != nil) {
+		assert.Equal(t, *sc.RunAsGroup, int64(101))
+	}
+}

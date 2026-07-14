@@ -69,8 +69,8 @@ type KDBMonitoringStackSpec struct {
 	// +kubebuilder:default="v0.92.0"
 	OperatorVersion string `json:"operatorVersion,omitempty"`
 
-	// BundleURL points to the Prometheus Operator official bundle. If empty,
-	// the operator uses the version-matched official bundle URL.
+	// BundleURL points to an explicit Prometheus Operator bundle URL.
+	// If empty, the operator uses the embedded offline bundle for OperatorVersion.
 	// +optional
 	BundleURL string `json:"bundleUrl,omitempty"`
 

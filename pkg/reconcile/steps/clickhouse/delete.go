@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 )
 
 type deletionAction string
@@ -37,4 +38,11 @@ func orderedDeletionActions(instance *v1.KDBInstance) []deletionAction {
 		deletionRemoveKeeperLast,
 	}
 	return actions
+}
+
+func prepareClickHouseDeletion(rc *context.InstanceContext) (bool, error) {
+	if err := deleteGatewayResources(rc); err != nil {
+		return false, err
+	}
+	return true, nil
 }

@@ -1,9 +1,8 @@
-FROM registry.access.redhat.com/ubi8-minimal
+FROM kdbdeveloper/ubi8-base
 
 LABEL maintainers="kdbdeveloper"
 LABEL description="kdb-operator"
 
-RUN microdnf install -y vim iputils
 
 RUN mkdir -p /kdb/bin/ && mkdir -p /kdb/conf/
 
