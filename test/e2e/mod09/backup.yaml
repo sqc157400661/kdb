@@ -1,0 +1,12 @@
+apiVersion: kdb.com/v1
+kind: DBBackup
+metadata:
+  name: orders-a-mod09-full-v2
+  namespace: kdb
+spec:
+  operationId: mod09-object-storage-gate-v2
+  instanceRef:
+    name: orders-a
+  type: full
+  validate: true
+  reason: MOD-09 cross-cluster DR Gate

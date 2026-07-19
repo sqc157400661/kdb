@@ -13,6 +13,9 @@ const (
 
 	ContainerSidecar = "mgr"
 
+	// ContainerPostgreSQLHA is the single PostgreSQL Pod-local management runtime.
+	ContainerPostgreSQLHA = "kdb-ha"
+
 	ContainerMySQLExporter = "mysql-exporter"
 
 	ContainerPostgreSQLExporter = "postgresql-exporter"
@@ -31,4 +34,6 @@ const (
 	PortMySQLMetrics = "mysql-metrics"
 
 	PortPostgreSQLMetrics = "postgresql-metrics"
+
+	PortPostgreSQLHA = "kdb-ha"
 )

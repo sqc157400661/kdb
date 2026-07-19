@@ -15,17 +15,22 @@ import (
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps/pg"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/tools/record"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"strconv"
+	"time"
 )
 
 const (
@@ -93,6 +98,7 @@ func (r *KDBInstanceReconciler) Reconcile(
 	kube.Branch(rc.IsDeleting(), stepManager.HandleDelete(), stepManager.CheckAndSetFinalizer())(task)
 	stepManager.SetGlobalConfig()(task)
 	stepManager.EnsureLeader()(task)
+	stepManager.ReconcileLifecycle()(task)
 	stepManager.SetInstanceConfig()(task)
 	stepManager.SetRbac()(task)
 	stepManager.SetService()(task)
@@ -101,7 +107,14 @@ func (r *KDBInstanceReconciler) Reconcile(
 	stepManager.ScaleUpInstance()(task)
 	stepManager.ScaleDownInstance()(task)
 	stepManager.ReconcileProxySQL()(task)
-	return kube.NewExecutor(logger).Execute(rc, task)
+	result, err := kube.NewExecutor(logger).Execute(rc, task)
+	if err == nil && naming.IsPGEngine(kdbInstance) && !result.Requeue && result.RequeueAfter == 0 {
+		// Lease expiry is a passage-of-time event, not a Kubernetes watch event.
+		// A short periodic reconcile lets the Operator perform external fencing
+		// even when the expired holder and API server produce no further events.
+		result.RequeueAfter = 5 * time.Second
+	}
+	return result, err
 }
 
 func NewInstanceStepManager(kdbInstance *v1.KDBInstance) (steps.InstanceStepper, error) {
@@ -118,20 +131,25 @@ func NewInstanceStepManager(kdbInstance *v1.KDBInstance) (steps.InstanceStepper,
 }
 
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=endpoints,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=delete;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=apps,resources=replicasets,verbs=get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;prometheusrules,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;update;watch
 
 // SetupWithManager adds the KDBInstance controller to the provided runtime manager
 func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
@@ -155,6 +173,7 @@ func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 		WithOptions(opts).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Endpoints{}).
+		Owns(&discoveryv1.EndpointSlice{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.Service{}).
@@ -164,5 +183,15 @@ func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 		Owns(&batchv1.Job{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
+		Watches(&source.Kind{Type: &coordinationv1.Lease{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
+		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
 		Complete(r)
+}
+
+func postgreSQLDCSRequests(object client.Object) []reconcile.Request {
+	scope := object.GetLabels()["kdb.com/dcs-scope"]
+	if scope == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: object.GetNamespace(), Name: scope}}}
 }

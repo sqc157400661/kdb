@@ -5,14 +5,18 @@ metadata:
   namespace: kdb
 spec:
   engine: postgresql
-  engineVersion: "14"
-  engineFullVersion: "14"
+  engineVersion: "17"
+  engineFullVersion: "17"
   deployArch: Single
   port: 5432
   instance:
     replicas: 1
     mainContainer:
-      image: kdbdeveloper/postgresql14:v0.0.1
+      image: kdbdeveloper/postgresql17:v0.0.1
+    sidecarContainer:
+      image: kdbdeveloper/postgresql-sidecar:v0.0.1
+      command: [kdb-ha]
+      args: [/etc/patroni/patroni.yaml]
     dataVolumeClaimSpec:
       storageClass: standard
       size: 10Gi

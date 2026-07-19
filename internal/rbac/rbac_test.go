@@ -25,6 +25,27 @@ func TestKDBInstancePodPermissionsAreGrantableByOperatorManifests(t *testing.T) 
 	}
 }
 
+func TestPostgreSQLPodPermissionsUseLeasesAndReadOnlyEndpoints(t *testing.T) {
+	operatorRules := loadClusterRoleRules(t, filepath.Join("..", "..", "config", "rbac", "role.yaml"))
+	sampleRules := loadRoleRules(t, filepath.Join("..", "..", "hack", "sample", "operator", "role.yaml"))
+	rules := PostgreSQLInstancePodPermissions()
+	for _, rule := range rules {
+		for _, apiGroup := range rule.APIGroups {
+			for _, resource := range rule.Resources {
+				for _, verb := range rule.Verbs {
+					assertRuleAllows(t, "config/rbac/role.yaml", operatorRules, apiGroup, resource, verb)
+					assertRuleAllows(t, "hack/sample/operator/role.yaml", sampleRules, apiGroup, resource, verb)
+				}
+			}
+		}
+	}
+	for _, rule := range rules {
+		if contains(rule.Resources, "endpoints") && (contains(rule.Verbs, "create") || contains(rule.Verbs, "update") || contains(rule.Verbs, "delete")) {
+			t.Fatalf("PostgreSQL Endpoints compatibility permission must be read-only: %#v", rule)
+		}
+	}
+}
+
 func TestOperatorManifestsCanManageInstanceRbacObjects(t *testing.T) {
 	operatorRules := loadClusterRoleRules(t, filepath.Join("..", "..", "config", "rbac", "role.yaml"))
 	sampleRules := loadRoleRules(t, filepath.Join("..", "..", "hack", "sample", "operator", "role.yaml"))

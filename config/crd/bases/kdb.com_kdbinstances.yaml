@@ -2961,8 +2961,14 @@ spec:
                     properties:
                       pgbackrest:
                         properties:
+                          differentialSchedule:
+                            default: 0 1 * * 1-6
+                            type: string
                           enabled:
                             type: boolean
+                          fullSchedule:
+                            default: 0 1 * * 0
+                            type: string
                           repoPath:
                             default: /backrestrepo
                             type: string
@@ -2978,14 +2984,43 @@ spec:
                             - local
                             - s3
                             type: string
+                          retentionDays:
+                            default: 14
+                            format: int32
+                            minimum: 1
+                            type: integer
                           retentionFull:
                             format: int32
                             minimum: 1
                             type: integer
+                          s3Bucket:
+                            type: string
+                          s3Endpoint:
+                            type: string
+                          s3Region:
+                            type: string
+                          s3TlsVerify:
+                            type: boolean
+                          s3UriStyle:
+                            default: path
+                            enum:
+                            - host
+                            - path
+                            type: string
                           stanza:
                             default: db
                             type: string
+                          validationSchedule:
+                            default: 0 3 * * 0
+                            type: string
                         type: object
+                        x-kubernetes-validations:
+                        - message: enabled S3 pgBackRest requires bucket, endpoint
+                            and repoSecretRef
+                          rule: '!self.enabled || self.repoType != ''s3'' || (has(self.s3Bucket)
+                            && size(self.s3Bucket) > 0 && has(self.s3Endpoint) &&
+                            size(self.s3Endpoint) > 0 && has(self.repoSecretRef) &&
+                            size(self.repoSecretRef.name) > 0)'
                     type: object
                   credentialSecretRef:
                     properties:
@@ -2993,6 +3028,75 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  dr:
+                    properties:
+                      clusterId:
+                        type: string
+                      enabled:
+                        type: boolean
+                      etcd3:
+                        properties:
+                          endpoints:
+                            items:
+                              type: string
+                            maxItems: 9
+                            minItems: 1
+                            type: array
+                          prefix:
+                            type: string
+                          secretRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - endpoints
+                        - secretRef
+                        type: object
+                      manualPromotionOnly:
+                        type: boolean
+                      peerClusterId:
+                        type: string
+                      role:
+                        enum:
+                        - active
+                        - standby
+                        type: string
+                      scope:
+                        type: string
+                      walSource:
+                        properties:
+                          archivePrefix:
+                            type: string
+                          primaryConnInfo:
+                            type: string
+                        type: object
+                    required:
+                    - clusterId
+                    - enabled
+                    - etcd3
+                    - manualPromotionOnly
+                    - peerClusterId
+                    - role
+                    - scope
+                    type: object
+                    x-kubernetes-validations:
+                    - message: enabled PostgreSQL DR requires distinct cluster IDs,
+                        scope, manual promotion and etcd3 endpoints/secret
+                      rule: '!self.enabled || (self.manualPromotionOnly && size(self.clusterId)
+                        > 0 && size(self.peerClusterId) > 0 && self.clusterId != self.peerClusterId
+                        && size(self.scope) > 0 && size(self.etcd3.endpoints) > 0
+                        && size(self.etcd3.secretRef.name) > 0)'
+                    - message: PostgreSQL DR standby requires a streaming or archive
+                        WAL source
+                      rule: '!self.enabled || self.role != ''standby'' || size(self.walSource.primaryConnInfo)
+                        > 0 || size(self.walSource.archivePrefix) > 0'
+                    - message: enabled PostgreSQL DR cluster identity and scope are
+                        immutable
+                      rule: '!oldSelf.enabled || (self.clusterId == oldSelf.clusterId
+                        && self.peerClusterId == oldSelf.peerClusterId && self.scope
+                        == oldSelf.scope)'
                   exporter:
                     properties:
                       enabled:
@@ -3083,10 +3187,127 @@ spec:
                             type: object
                         type: object
                     type: object
+                  ha:
+                    properties:
+                      maximumLagOnFailoverBytes:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      maximumLagOnSyncNodeBytes:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      profile:
+                        default: single
+                        enum:
+                        - single
+                        - standard-ha
+                        - strong-ha
+                        type: string
+                      synchronousMode:
+                        type: boolean
+                      synchronousModeStrict:
+                        type: boolean
+                      synchronousNodeCount:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
                   hba:
                     items:
                       type: string
                     type: array
+                  lifecycle:
+                    properties:
+                      extensions:
+                        items:
+                          properties:
+                            customImage:
+                              properties:
+                                attestationRef:
+                                  maxLength: 512
+                                  type: string
+                                image:
+                                  maxLength: 512
+                                  type: string
+                                scanStatus:
+                                  enum:
+                                  - Passed
+                                  - Failed
+                                  - Pending
+                                  type: string
+                                signatureVerified:
+                                  type: boolean
+                              required:
+                              - image
+                              - scanStatus
+                              - signatureVerified
+                              type: object
+                              x-kubernetes-validations:
+                              - message: custom PostgreSQL extension images require
+                                  digest, verified signature, passed scan and attestation
+                                rule: self.image.matches('^.+@sha256:[0-9a-f]{64}$')
+                                  && self.signatureVerified && self.scanStatus ==
+                                  'Passed' && size(self.attestationRef) > 0
+                            name:
+                              type: string
+                            version:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 32
+                        type: array
+                      rebuild:
+                        properties:
+                          abandonOldVolume:
+                            type: boolean
+                          backupRef:
+                            type: string
+                          operationId:
+                            type: string
+                          podName:
+                            type: string
+                          source:
+                            enum:
+                            - Primary
+                            - Backup
+                            type: string
+                        required:
+                        - abandonOldVolume
+                        - operationId
+                        - podName
+                        - source
+                        type: object
+                      upgrade:
+                        properties:
+                          acceptIrreversible:
+                            type: boolean
+                          extensionsCompatible:
+                            type: boolean
+                          maintenanceWindow:
+                            type: string
+                          operationId:
+                            type: string
+                          recoverableBackupRef:
+                            type: string
+                          targetFullVersion:
+                            type: string
+                          targetImage:
+                            type: string
+                          targetMajorVersion:
+                            type: string
+                          type:
+                            enum:
+                            - Minor
+                            - Major
+                            type: string
+                        required:
+                        - operationId
+                        - targetImage
+                        - type
+                        type: object
+                    type: object
                   parameters:
                     additionalProperties:
                       type: string
@@ -3109,6 +3330,55 @@ spec:
                         format: int32
                         minimum: 1
                         type: integer
+                    type: object
+                  pgbouncer:
+                    properties:
+                      enabled:
+                        type: boolean
+                      image:
+                        type: string
+                      port:
+                        default: 6432
+                        format: int32
+                        type: integer
+                      replicas:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      resources:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  restore:
+                    properties:
+                      backupId:
+                        type: string
+                      operationId:
+                        type: string
+                      target:
+                        type: string
+                      targetAction:
+                        type: string
+                      targetType:
+                        type: string
+                    required:
+                    - operationId
                     type: object
                 type: object
               proxy:
@@ -3311,6 +3581,13 @@ spec:
             - message: deployArch MGR is only supported by MySQL
               rule: self.engine != 'postgresql' && self.engine != 'pg' || self.deployArch
                 != 'MGR'
+            - message: PostgreSQL single requires exactly 1 member and HA profiles
+                require at least 3 members
+              rule: 'self.engine != ''postgresql'' && self.engine != ''pg'' || ((!has(self.postgresql)
+                || !has(self.postgresql.ha) || self.postgresql.ha.profile == ''single'')
+                ? self.instance.replicas == 1 : self.instance.replicas >= 3)'
+            - message: PostgreSQL data PVC size cannot decrease
+              rule: self.engine != 'postgresql' && self.engine != 'pg' || !quantity(self.instance.dataVolumeClaimSpec.size).isLessThan(quantity(oldSelf.instance.dataVolumeClaimSpec.size))
           status:
             properties:
               clickhouse:
@@ -3449,6 +3726,113 @@ spec:
                 type: string
               postgresql:
                 properties:
+                  bootstrapParameters:
+                    properties:
+                      appliedAt:
+                        format: date-time
+                        type: string
+                      inputHash:
+                        type: string
+                      method:
+                        type: string
+                      revision:
+                        format: int64
+                        type: integer
+                      state:
+                        type: string
+                    type: object
+                  dr:
+                    properties:
+                      activeClusterId:
+                        type: string
+                      clusterHeartbeats:
+                        additionalProperties:
+                          properties:
+                            clusterId:
+                              type: string
+                            lsn:
+                              type: string
+                            observedAt:
+                              format: date-time
+                              type: string
+                            role:
+                              type: string
+                          type: object
+                        type: object
+                      clusterId:
+                        type: string
+                      configuredRole:
+                        type: string
+                      connected:
+                        type: boolean
+                      enabled:
+                        type: boolean
+                      fencedClusterId:
+                        type: string
+                      fencedTerm:
+                        format: int64
+                        type: integer
+                      lastDrill:
+                        properties:
+                          approvalRef:
+                            type: string
+                          approvers:
+                            items:
+                              type: string
+                            type: array
+                          completedAt:
+                            format: date-time
+                            type: string
+                          currentTerm:
+                            format: int64
+                            type: integer
+                          operationId:
+                            type: string
+                          previousTerm:
+                            format: int64
+                            type: integer
+                          rpoBytes:
+                            format: int64
+                            type: integer
+                          rpoSeconds:
+                            format: int64
+                            type: integer
+                          rtoSeconds:
+                            format: int64
+                            type: integer
+                          startedAt:
+                            format: date-time
+                            type: string
+                        type: object
+                      lastFencedAt:
+                        format: date-time
+                        type: string
+                      lastOperationId:
+                        type: string
+                      lastPromotedAt:
+                        format: date-time
+                        type: string
+                      manualPromotionOnly:
+                        type: boolean
+                      peerClusterId:
+                        type: string
+                      rpoBytes:
+                        format: int64
+                        type: integer
+                      rpoSeconds:
+                        format: int64
+                        type: integer
+                      runtimeRole:
+                        type: string
+                      term:
+                        format: int64
+                        type: integer
+                    type: object
+                  dynamicConfigRevision:
+                    format: int64
+                    type: integer
+                  effectiveConfigHash:
+                    type: string
                   endpoints:
                     items:
                       properties:
@@ -3465,15 +3849,124 @@ spec:
                       - port
                       type: object
                     type: array
+                  lifecycle:
+                    properties:
+                      completedAt:
+                        format: date-time
+                        type: string
+                      currentVersion:
+                        type: string
+                      irreversible:
+                        type: boolean
+                      jobName:
+                        type: string
+                      kind:
+                        type: string
+                      memberName:
+                        type: string
+                      message:
+                        type: string
+                      newPvcUID:
+                        type: string
+                      oldPvcUID:
+                        type: string
+                      operationId:
+                        type: string
+                      phase:
+                        type: string
+                      primaryAfter:
+                        type: string
+                      primaryBefore:
+                        type: string
+                      startedAt:
+                        format: date-time
+                        type: string
+                      targetVersion:
+                        type: string
+                    type: object
+                  members:
+                    items:
+                      properties:
+                        lsn:
+                          type: string
+                        name:
+                          type: string
+                        nodeName:
+                          type: string
+                        observedAt:
+                          format: date-time
+                          type: string
+                        podUID:
+                          type: string
+                        ready:
+                          type: boolean
+                        role:
+                          type: string
+                        running:
+                          type: boolean
+                        synchronous:
+                          type: boolean
+                        term:
+                          format: int64
+                          type: integer
+                        timeline:
+                          type: integer
+                        zone:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
                   pgbackrest:
                     properties:
                       configMapName:
                         type: string
+                      differentialSchedule:
+                        type: string
                       enabled:
                         type: boolean
+                      fullSchedule:
+                        type: string
+                      lastRestoreValidationStatus:
+                        type: string
+                      lastRestoreValidationTime:
+                        format: date-time
+                        type: string
+                      lastSuccessfulBackupTime:
+                        format: date-time
+                        type: string
+                      latestBackupRef:
+                        type: string
+                      pitrWindowEnd:
+                        format: date-time
+                        type: string
+                      pitrWindowStart:
+                        format: date-time
+                        type: string
                       repoType:
                         type: string
+                      retentionDays:
+                        format: int32
+                        type: integer
                       stanza:
+                        type: string
+                      walArchiveEnabled:
+                        type: boolean
+                    type: object
+                  pgbouncer:
+                    properties:
+                      enabled:
+                        type: boolean
+                      port:
+                        format: int32
+                        type: integer
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      replicas:
+                        format: int32
+                        type: integer
+                      serviceName:
                         type: string
                     type: object
                   primary:
@@ -3484,6 +3977,22 @@ spec:
                     items:
                       type: string
                     type: array
+                  services:
+                    properties:
+                      any:
+                        type: string
+                      headless:
+                        type: string
+                      pgbouncer:
+                        type: string
+                      primary:
+                        type: string
+                      replicas:
+                        type: string
+                    type: object
+                  term:
+                    format: int64
+                    type: integer
                 type: object
               proxy:
                 properties:

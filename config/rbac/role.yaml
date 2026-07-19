@@ -39,16 +39,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - namespaces
   verbs:
   - create
@@ -60,9 +50,28 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - persistentvolumeclaims
   verbs:
   - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
   - delete
   - get
   - list
@@ -104,9 +113,31 @@ rules:
   - update
   - watch
 - apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - apps
   resources:
   - daemonsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
   - deployments
   verbs:
   - create
@@ -117,90 +148,10 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kdb.com
+  - apps
   resources:
-  - kdbclusters
+  - replicasets
   verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdbclusters/status
-  verbs:
-  - patch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdbinstances
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdbinstances/status
-  verbs:
-  - patch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdbmonitoringstacks
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdbmonitoringstacks/status
-  verbs:
-  - patch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdblogsystems
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kdb.com
-  resources:
-  - kdblogsystems/status
-  verbs:
-  - patch
-- apiGroups:
-  - monitoring.coreos.com
-  resources:
-  - alertmanagers
-  - alertmanagerconfigs
-  - podmonitors
-  - probes
-  - prometheuses
-  - prometheusagents
-  - prometheusrules
-  - scrapeconfigs
-  - servicemonitors
-  - thanosrulers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apiextensions.k8s.io
-  resources:
-  - customresourcedefinitions
-  verbs:
-  - create
   - get
   - list
   - patch
@@ -231,8 +182,24 @@ rules:
   resources:
   - jobs
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - dbpaas.com
@@ -248,6 +215,200 @@ rules:
   - postgresclusters/status
   verbs:
   - patch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - KDBClusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - KDBClusters/status
+  verbs:
+  - patch
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbbackups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbbackups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbfailovers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbfailovers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbrestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - dbrestores/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbclusters
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbclusters/status
+  verbs:
+  - patch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbinstances
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbinstances/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdblogsystems
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdblogsystems/status
+  verbs:
+  - patch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbmonitoringstacks
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kdb.com
+  resources:
+  - kdbmonitoringstacks/status
+  verbs:
+  - patch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - alertmanagerconfigs
+  - alertmanagers
+  - podmonitors
+  - probes
+  - prometheusagents
+  - prometheuses
+  - prometheusrules
+  - scrapeconfigs
+  - servicemonitors
+  - thanosrulers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  - prometheusrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - policy
   resources:

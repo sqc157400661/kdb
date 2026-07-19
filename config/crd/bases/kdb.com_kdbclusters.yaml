@@ -617,8 +617,14 @@ spec:
                     properties:
                       pgbackrest:
                         properties:
+                          differentialSchedule:
+                            default: 0 1 * * 1-6
+                            type: string
                           enabled:
                             type: boolean
+                          fullSchedule:
+                            default: 0 1 * * 0
+                            type: string
                           repoPath:
                             default: /backrestrepo
                             type: string
@@ -634,14 +640,43 @@ spec:
                             - local
                             - s3
                             type: string
+                          retentionDays:
+                            default: 14
+                            format: int32
+                            minimum: 1
+                            type: integer
                           retentionFull:
                             format: int32
                             minimum: 1
                             type: integer
+                          s3Bucket:
+                            type: string
+                          s3Endpoint:
+                            type: string
+                          s3Region:
+                            type: string
+                          s3TlsVerify:
+                            type: boolean
+                          s3UriStyle:
+                            default: path
+                            enum:
+                            - host
+                            - path
+                            type: string
                           stanza:
                             default: db
                             type: string
+                          validationSchedule:
+                            default: 0 3 * * 0
+                            type: string
                         type: object
+                        x-kubernetes-validations:
+                        - message: enabled S3 pgBackRest requires bucket, endpoint
+                            and repoSecretRef
+                          rule: '!self.enabled || self.repoType != ''s3'' || (has(self.s3Bucket)
+                            && size(self.s3Bucket) > 0 && has(self.s3Endpoint) &&
+                            size(self.s3Endpoint) > 0 && has(self.repoSecretRef) &&
+                            size(self.repoSecretRef.name) > 0)'
                     type: object
                   credentialSecretRef:
                     properties:
@@ -649,6 +684,75 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  dr:
+                    properties:
+                      clusterId:
+                        type: string
+                      enabled:
+                        type: boolean
+                      etcd3:
+                        properties:
+                          endpoints:
+                            items:
+                              type: string
+                            maxItems: 9
+                            minItems: 1
+                            type: array
+                          prefix:
+                            type: string
+                          secretRef:
+                            properties:
+                              name:
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - endpoints
+                        - secretRef
+                        type: object
+                      manualPromotionOnly:
+                        type: boolean
+                      peerClusterId:
+                        type: string
+                      role:
+                        enum:
+                        - active
+                        - standby
+                        type: string
+                      scope:
+                        type: string
+                      walSource:
+                        properties:
+                          archivePrefix:
+                            type: string
+                          primaryConnInfo:
+                            type: string
+                        type: object
+                    required:
+                    - clusterId
+                    - enabled
+                    - etcd3
+                    - manualPromotionOnly
+                    - peerClusterId
+                    - role
+                    - scope
+                    type: object
+                    x-kubernetes-validations:
+                    - message: enabled PostgreSQL DR requires distinct cluster IDs,
+                        scope, manual promotion and etcd3 endpoints/secret
+                      rule: '!self.enabled || (self.manualPromotionOnly && size(self.clusterId)
+                        > 0 && size(self.peerClusterId) > 0 && self.clusterId != self.peerClusterId
+                        && size(self.scope) > 0 && size(self.etcd3.endpoints) > 0
+                        && size(self.etcd3.secretRef.name) > 0)'
+                    - message: PostgreSQL DR standby requires a streaming or archive
+                        WAL source
+                      rule: '!self.enabled || self.role != ''standby'' || size(self.walSource.primaryConnInfo)
+                        > 0 || size(self.walSource.archivePrefix) > 0'
+                    - message: enabled PostgreSQL DR cluster identity and scope are
+                        immutable
+                      rule: '!oldSelf.enabled || (self.clusterId == oldSelf.clusterId
+                        && self.peerClusterId == oldSelf.peerClusterId && self.scope
+                        == oldSelf.scope)'
                   exporter:
                     properties:
                       enabled:
@@ -739,10 +843,127 @@ spec:
                             type: object
                         type: object
                     type: object
+                  ha:
+                    properties:
+                      maximumLagOnFailoverBytes:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      maximumLagOnSyncNodeBytes:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      profile:
+                        default: single
+                        enum:
+                        - single
+                        - standard-ha
+                        - strong-ha
+                        type: string
+                      synchronousMode:
+                        type: boolean
+                      synchronousModeStrict:
+                        type: boolean
+                      synchronousNodeCount:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
                   hba:
                     items:
                       type: string
                     type: array
+                  lifecycle:
+                    properties:
+                      extensions:
+                        items:
+                          properties:
+                            customImage:
+                              properties:
+                                attestationRef:
+                                  maxLength: 512
+                                  type: string
+                                image:
+                                  maxLength: 512
+                                  type: string
+                                scanStatus:
+                                  enum:
+                                  - Passed
+                                  - Failed
+                                  - Pending
+                                  type: string
+                                signatureVerified:
+                                  type: boolean
+                              required:
+                              - image
+                              - scanStatus
+                              - signatureVerified
+                              type: object
+                              x-kubernetes-validations:
+                              - message: custom PostgreSQL extension images require
+                                  digest, verified signature, passed scan and attestation
+                                rule: self.image.matches('^.+@sha256:[0-9a-f]{64}$')
+                                  && self.signatureVerified && self.scanStatus ==
+                                  'Passed' && size(self.attestationRef) > 0
+                            name:
+                              type: string
+                            version:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 32
+                        type: array
+                      rebuild:
+                        properties:
+                          abandonOldVolume:
+                            type: boolean
+                          backupRef:
+                            type: string
+                          operationId:
+                            type: string
+                          podName:
+                            type: string
+                          source:
+                            enum:
+                            - Primary
+                            - Backup
+                            type: string
+                        required:
+                        - abandonOldVolume
+                        - operationId
+                        - podName
+                        - source
+                        type: object
+                      upgrade:
+                        properties:
+                          acceptIrreversible:
+                            type: boolean
+                          extensionsCompatible:
+                            type: boolean
+                          maintenanceWindow:
+                            type: string
+                          operationId:
+                            type: string
+                          recoverableBackupRef:
+                            type: string
+                          targetFullVersion:
+                            type: string
+                          targetImage:
+                            type: string
+                          targetMajorVersion:
+                            type: string
+                          type:
+                            enum:
+                            - Minor
+                            - Major
+                            type: string
+                        required:
+                        - operationId
+                        - targetImage
+                        - type
+                        type: object
+                    type: object
                   parameters:
                     additionalProperties:
                       type: string
@@ -765,6 +986,55 @@ spec:
                         format: int32
                         minimum: 1
                         type: integer
+                    type: object
+                  pgbouncer:
+                    properties:
+                      enabled:
+                        type: boolean
+                      image:
+                        type: string
+                      port:
+                        default: 6432
+                        format: int32
+                        type: integer
+                      replicas:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      resources:
+                        properties:
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  restore:
+                    properties:
+                      backupId:
+                        type: string
+                      operationId:
+                        type: string
+                      target:
+                        type: string
+                      targetAction:
+                        type: string
+                      targetType:
+                        type: string
+                    required:
+                    - operationId
                     type: object
                 type: object
               proxy:

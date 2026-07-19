@@ -152,11 +152,11 @@ func clickHouseHostAffinity(instance *v1.KDBInstance, group v1.ClickHouseCompute
 	}
 	term := corev1.PodAffinityTerm{
 		LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-			naming.LabelInstance: instance.Name,
-			naming.LabelClickHouseEngine: naming.ClickHouseEngine,
-			naming.LabelClickHouseComponent: naming.ClickHouseComponentClickHouse,
+			naming.LabelInstance:               instance.Name,
+			naming.LabelClickHouseEngine:       naming.ClickHouseEngine,
+			naming.LabelClickHouseComponent:    naming.ClickHouseComponentClickHouse,
 			naming.LabelClickHouseComputeGroup: group.Name,
-			naming.LabelClickHouseDataShard: fmt.Sprintf("%d", plan.Shard),
+			naming.LabelClickHouseDataShard:    fmt.Sprintf("%d", plan.Shard),
 		}},
 		TopologyKey: "kubernetes.io/hostname",
 	}
@@ -244,7 +244,7 @@ func standaloneVolumes(instance *v1.KDBInstance, group string) []corev1.Volume {
 			Name: clickHouseSidecarVolumeName,
 			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: naming.ClickHouseGroupConfigMapName(instance.Name, group)},
-				Items: []corev1.KeyToPath{{Key: clickHouseSidecarKey, Path: clickHouseSidecarKey}},
+				Items:                []corev1.KeyToPath{{Key: clickHouseSidecarKey, Path: clickHouseSidecarKey}},
 			}},
 		},
 		{
@@ -293,10 +293,10 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 			{Name: "http", ContainerPort: naming.ClickHouseHTTPPort(), Protocol: corev1.ProtocolTCP},
 			{Name: "native", ContainerPort: naming.ClickHouseNativePort(), Protocol: corev1.ProtocolTCP},
 		},
-		VolumeMounts: databaseMounts,
-		StartupProbe: clickHouseHTTPProbe(60, 5),
+		VolumeMounts:   databaseMounts,
+		StartupProbe:   clickHouseHTTPProbe(60, 5),
 		ReadinessProbe: clickHouseHTTPProbe(3, 5),
-		LivenessProbe: clickHouseHTTPProbe(6, 10),
+		LivenessProbe:  clickHouseHTTPProbe(6, 10),
 	}
 	sidecarMounts := append([]corev1.VolumeMount{}, sharedMounts...)
 	sidecarMounts = append(sidecarMounts,
@@ -313,10 +313,11 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 		sidecarArgs = []string{"clickhouse", "--config", clickHouseSidecarConfigPath + "/" + clickHouseSidecarKey}
 	}
 	sidecar := corev1.Container{
-		Name:            naming.ContainerSidecar,
-		Command:         sidecarCommand,
-		Args:            sidecarArgs,
-		Env:             append(clickHouseClientEnv(instance, plan), instanceSet.SidecarContainer.Env...),
+		Name:    naming.ContainerSidecar,
+		Command: sidecarCommand,
+		Args:    sidecarArgs,
+		Env: append(clickHouseClientEnv(instance, plan),
+			append([]corev1.EnvVar{{Name: "KDB_SIDECAR_TLS_REQUIRED", Value: "true"}}, instanceSet.SidecarContainer.Env...)...),
 		Image:           instanceSet.SidecarContainer.Image,
 		Resources:       instanceSet.SidecarContainer.Resources,
 		SecurityContext: security.InitClickHouseSecurityContext(),
@@ -325,10 +326,10 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 			ContainerPort: 8080,
 			Protocol:      corev1.ProtocolTCP,
 		}},
-		VolumeMounts: sidecarMounts,
-		StartupProbe: sidecarHTTPProbe(30, 5),
-		ReadinessProbe: sidecarHTTPProbe(3, 5),
-		LivenessProbe: sidecarHTTPProbe(6, 10),
+		VolumeMounts:   sidecarMounts,
+		StartupProbe:   sidecarTCPProbe(30, 5),
+		ReadinessProbe: sidecarTCPProbe(3, 5),
+		LivenessProbe:  sidecarTCPProbe(6, 10),
 	}
 	containers := []corev1.Container{database, sidecar}
 	if !clickHouseBackupRunnerEnabled(instance) {
@@ -340,9 +341,9 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 		corev1.VolumeMount{Name: clickHouseUsersVolumeName, MountPath: clickHouseConfigMountPath + "/users.d", ReadOnly: true},
 	)
 	backupRunner := corev1.Container{
-		Name:            clickHouseBackupRunnerContainer,
-		Image:           clickHouseBackupRunnerImage(instance, instanceSet),
-		Args:            []string{"server"},
+		Name:  clickHouseBackupRunnerContainer,
+		Image: clickHouseBackupRunnerImage(instance, instanceSet),
+		Args:  []string{"server"},
 		Env: append(clickHouseClientEnv(instance, plan),
 			corev1.EnvVar{Name: "API_LISTEN", Value: "127.0.0.1:7171"},
 			corev1.EnvVar{Name: "CLICKHOUSE_CONFIG_DIR", Value: clickHouseConfigMountPath},
@@ -354,10 +355,10 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 			ContainerPort: clickHouseBackupRunnerPort,
 			Protocol:      corev1.ProtocolTCP,
 		}},
-		VolumeMounts: backupMounts,
-		StartupProbe: backupRunnerProbe(60, 5),
+		VolumeMounts:   backupMounts,
+		StartupProbe:   backupRunnerProbe(60, 5),
 		ReadinessProbe: backupRunnerProbe(3, 5),
-		LivenessProbe: backupRunnerProbe(6, 10),
+		LivenessProbe:  backupRunnerProbe(6, 10),
 	}
 	if instance.Spec.ClickHouse.Backup != nil && instance.Spec.ClickHouse.Backup.ObjectStorageRef != nil {
 		backupRunner.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{
@@ -374,20 +375,19 @@ func clickHouseHTTPProbe(failureThreshold, periodSeconds int32) *corev1.Probe {
 			Port: intstr.FromString("http"),
 		}},
 		FailureThreshold: failureThreshold,
-		PeriodSeconds: periodSeconds,
-		TimeoutSeconds: 3,
+		PeriodSeconds:    periodSeconds,
+		TimeoutSeconds:   3,
 	}
 }
 
-func sidecarHTTPProbe(failureThreshold, periodSeconds int32) *corev1.Probe {
+func sidecarTCPProbe(failureThreshold, periodSeconds int32) *corev1.Probe {
 	return &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
-			Path: "/health",
+		ProbeHandler: corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{
 			Port: intstr.FromString(naming.PortSidecarMetrics),
 		}},
 		FailureThreshold: failureThreshold,
-		PeriodSeconds: periodSeconds,
-		TimeoutSeconds: 3,
+		PeriodSeconds:    periodSeconds,
+		TimeoutSeconds:   3,
 	}
 }
 
@@ -397,8 +397,8 @@ func backupRunnerProbe(failureThreshold, periodSeconds int32) *corev1.Probe {
 			"sh", "-c", "wget -q -O /dev/null http://127.0.0.1:7171/",
 		}}},
 		FailureThreshold: failureThreshold,
-		PeriodSeconds: periodSeconds,
-		TimeoutSeconds: 3,
+		PeriodSeconds:    periodSeconds,
+		TimeoutSeconds:   3,
 	}
 }
 
@@ -433,7 +433,7 @@ func clickHouseSecretEnv(name, key string, instance *v1.KDBInstance) corev1.EnvV
 		Name: name,
 		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{Name: naming.ClickHouseSecretName(instance.Name)},
-			Key: key,
+			Key:                  key,
 		}},
 	}
 }

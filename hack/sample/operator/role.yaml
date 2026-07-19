@@ -5,6 +5,18 @@ metadata:
   namespace: kdb
 rules:
 - apiGroups:
+    - coordination.k8s.io
+  resources:
+    - leases
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
     - ''
   resources:
     - configmaps
@@ -125,6 +137,18 @@ rules:
     - patch
     - watch
 - apiGroups:
+    - networking.k8s.io
+  resources:
+    - networkpolicies
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
     - kdb.com
   resources:
     - kdbinstances/finalizers
@@ -135,7 +159,9 @@ rules:
   resources:
     - kdbinstances/status
   verbs:
+    - get
     - patch
+    - update
 - apiGroups:
     - kdb.com
   resources:
@@ -210,6 +236,60 @@ rules:
     - roles
   verbs:
     - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - dbfailovers
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - dbfailovers/status
+  verbs:
+    - get
+    - patch
+    - update
+- apiGroups:
+    - kdb.com
+  resources:
+    - dbbackups
+    - dbrestores
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - kdb.com
+  resources:
+    - dbbackups/status
+    - dbrestores/status
+  verbs:
+    - get
+    - patch
+    - update
+- apiGroups:
+    - discovery.k8s.io
+  resources:
+    - endpointslices
+  verbs:
+    - create
+    - delete
     - get
     - list
     - patch

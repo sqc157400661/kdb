@@ -25,7 +25,7 @@ func TestAdhocLifecycleSuspend(t *testing.T) {
 	if !shouldSuspendGroup(instance, adhoc, time.Now()) {
 		t.Fatalf("expected idle adhoc group to suspend")
 	}
-	if desiredHostReplicas(instance, adhoc) != 0 {
+	if desiredHostReplicas(instance, adhoc, 0) != 0 {
 		t.Fatalf("expected suspended adhoc host replicas to be zero")
 	}
 }

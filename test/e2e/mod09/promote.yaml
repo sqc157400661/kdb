@@ -1,0 +1,18 @@
+apiVersion: kdb.com/v1
+kind: DBFailover
+metadata:
+  name: orders-b-mod09-promote
+  namespace: kdb
+spec:
+  operationId: mod09-promote-cluster-b-from-term-1
+  instanceRef:
+    name: orders-b
+  mode: dr-promote
+  clusterId: cluster-b
+  expectedTerm: 1
+  fencedTerm: 1
+  force: true
+  dataLossAcceptance: AcceptPotentialDataLoss
+  approvalRef: approval://mod09-change-20260716
+  approvers: [alice, bob]
+  reason: MOD-09 approved cross-cluster DR exercise

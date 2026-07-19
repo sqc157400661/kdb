@@ -12,16 +12,18 @@ import (
 	conf "github.com/sqc157400661/kdb/pkg/config"
 	"github.com/sqc157400661/kdb/pkg/controller"
 	"github.com/sqc157400661/kdb/pkg/featuregate"
-        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kdbwebhook "github.com/sqc157400661/kdb/pkg/webhook"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-        "k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"strings"
 )
 
@@ -93,7 +95,7 @@ func NewOperatorCommand() *cobra.Command {
 				setupLog.Error(err, "unable to start manager")
 				utilruntime.Must(err)
 			}
-                        logOperatorStartup(operatorOptions, mgr)
+			logOperatorStartup(operatorOptions, mgr)
 
 			err = addControllersToManager(mgr)
 			if err != nil {
@@ -145,21 +147,21 @@ func createScheme() (*runtime.Scheme, error) {
 	if err := clientgoscheme.AddToScheme(pgoScheme); err != nil {
 		return nil, err
 	}
-        setupLog.Info("registered kubernetes core scheme")
+	setupLog.Info("registered kubernetes core scheme")
 
 	// add custom resource types to the default scheme
 	if err := v1.AddToScheme(pgoScheme); err != nil {
 		return nil, err
 	}
-        setupLog.Info("registered kdb api scheme",
-                "groupVersion", v1.GroupVersion.String(),
-                "kinds", []string{
-                        v1.KDBInstanceKindName,
-                        v1.KDBClusterKindName,
-                        "KDBLogSystem",
-                        "KDBMonitoringStack",
-                },
-        )
+	setupLog.Info("registered kdb api scheme",
+		"groupVersion", v1.GroupVersion.String(),
+		"kinds", []string{
+			v1.KDBInstanceKindName,
+			v1.KDBClusterKindName,
+			"KDBLogSystem",
+			"KDBMonitoringStack",
+		},
+	)
 
 	return pgoScheme, nil
 }
@@ -198,39 +200,39 @@ func createManager(opt *Options, scheme *runtime.Scheme) (manager.Manager, error
 }
 
 func logOperatorStartup(opt *Options, mgr manager.Manager) {
-        setupLog.Info("operator startup configuration",
-                "namespace", conf.K8SNamespace,
-                "metricsAddr", opt.MetricsAddr,
-                "probeAddr", opt.ProbeAddr,
-                "listenPort", opt.ListenPort,
-                "webhookListenPort", opt.WebhookListenPort,
-                "leaderElection", opt.LeaderElection,
-                "leaderElectionNamespace", opt.LeaderElectionNamespace,
-                "maxConcurrentReconciles", opt.MaxConcurrentReconciles,
-                "featureGates", opt.FeatureGates,
-        )
-        logDiscoveredKDBResources(mgr)
+	setupLog.Info("operator startup configuration",
+		"namespace", conf.K8SNamespace,
+		"metricsAddr", opt.MetricsAddr,
+		"probeAddr", opt.ProbeAddr,
+		"listenPort", opt.ListenPort,
+		"webhookListenPort", opt.WebhookListenPort,
+		"leaderElection", opt.LeaderElection,
+		"leaderElectionNamespace", opt.LeaderElectionNamespace,
+		"maxConcurrentReconciles", opt.MaxConcurrentReconciles,
+		"featureGates", opt.FeatureGates,
+	)
+	logDiscoveredKDBResources(mgr)
 }
 
 func logDiscoveredKDBResources(mgr manager.Manager) {
-        client, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
-        if err != nil {
-                setupLog.Error(err, "create discovery client failed")
-                return
-        }
-        resources, err := client.ServerResourcesForGroupVersion(v1.GroupVersion.String())
-        if err != nil {
-                setupLog.Error(err, "discover kdb api resources failed",
-                        "groupVersion", v1.GroupVersion.String(),
-                        "expectedCRDs", expectedKDBCRDs(),
-                )
-                return
-        }
-        setupLog.Info("discovered kdb api resources",
-                "groupVersion", resources.GroupVersion,
-                "resources", apiResourceNames(resources.APIResources),
-                "expectedCRDs", expectedKDBCRDs(),
-        )
+	client, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "create discovery client failed")
+		return
+	}
+	resources, err := client.ServerResourcesForGroupVersion(v1.GroupVersion.String())
+	if err != nil {
+		setupLog.Error(err, "discover kdb api resources failed",
+			"groupVersion", v1.GroupVersion.String(),
+			"expectedCRDs", expectedKDBCRDs(),
+		)
+		return
+	}
+	setupLog.Info("discovered kdb api resources",
+		"groupVersion", resources.GroupVersion,
+		"resources", apiResourceNames(resources.APIResources),
+		"expectedCRDs", expectedKDBCRDs(),
+	)
 }
 
 // addControllersToManager adds all KDB-Operator controllers to the provided controller
@@ -250,10 +252,27 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBInstance controller")
 		return
 	}
-        setupLog.Info("registered controller",
-                "controller", controller.KDBInstanceControllerName,
-                "kind", v1.KDBInstanceKindName,
-        )
+	if err = (&controller.DBFailoverReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+		err = errors.Wrap(err, "unable to create DBFailover controller")
+		return
+	}
+	if featuregate.DefaultMutableFeatureGate.Enabled(featuregate.PostgreSQLLifecycleAdmission) {
+		mgr.GetWebhookServer().Register(kdbwebhook.PostgreSQLLifecyclePath, &admission.Webhook{Handler: kdbwebhook.PostgreSQLLifecycleValidator{}})
+		setupLog.Info("registered validating webhook", "path", kdbwebhook.PostgreSQLLifecyclePath, "kind", v1.KDBInstanceKindName)
+	}
+	setupLog.Info("registered controller", "controller", controller.DBFailoverControllerName, "kind", "DBFailover")
+	if err = (&controller.DBBackupReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+		return errors.Wrap(err, "unable to create DBBackup controller")
+	}
+	if err = (&controller.DBRestoreReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}).SetupWithManager(mgr); err != nil {
+		return errors.Wrap(err, "unable to create DBRestore controller")
+	}
+	setupLog.Info("registered controller", "controller", controller.DBBackupControllerName, "kind", "DBBackup")
+	setupLog.Info("registered controller", "controller", controller.DBRestoreControllerName, "kind", "DBRestore")
+	setupLog.Info("registered controller",
+		"controller", controller.KDBInstanceControllerName,
+		"kind", v1.KDBInstanceKindName,
+	)
 	if err = (&controller.KDBClusterReconciler{
 		ReconcileHelper: helper,
 		Owner:           controller.KDBClusterControllerName,
@@ -262,10 +281,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBCluster controller")
 		return
 	}
-        setupLog.Info("registered controller",
-                "controller", controller.KDBClusterControllerName,
-                "kind", v1.KDBClusterKindName,
-        )
+	setupLog.Info("registered controller",
+		"controller", controller.KDBClusterControllerName,
+		"kind", v1.KDBClusterKindName,
+	)
 	if err = (&controller.KDBLogSystemReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -274,10 +293,10 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBLogSystem controller")
 		return
 	}
-        setupLog.Info("registered controller",
-                "controller", controller.KDBLogSystemControllerName,
-                "kind", "KDBLogSystem",
-        )
+	setupLog.Info("registered controller",
+		"controller", controller.KDBLogSystemControllerName,
+		"kind", "KDBLogSystem",
+	)
 	if err = (&controller.KDBMonitoringStackReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -287,26 +306,29 @@ func addControllersToManager(mgr manager.Manager) (err error) {
 		err = errors.Wrap(err, "unable to create KDBMonitoringStack controller")
 		return
 	}
-        setupLog.Info("registered controller",
-                "controller", controller.KDBMonitoringStackControllerName,
-                "kind", "KDBMonitoringStack",
-        )
+	setupLog.Info("registered controller",
+		"controller", controller.KDBMonitoringStackControllerName,
+		"kind", "KDBMonitoringStack",
+	)
 	return
 }
 
 func expectedKDBCRDs() []string {
-        return []string{
-                "kdbclusters.kdb.com",
-                "kdbinstances.kdb.com",
-                "kdblogsystems.kdb.com",
-                "kdbmonitoringstacks.kdb.com",
-        }
+	return []string{
+		"kdbclusters.kdb.com",
+		"kdbinstances.kdb.com",
+		"dbfailovers.kdb.com",
+		"dbbackups.kdb.com",
+		"dbrestores.kdb.com",
+		"kdblogsystems.kdb.com",
+		"kdbmonitoringstacks.kdb.com",
+	}
 }
 
 func apiResourceNames(resources []metav1.APIResource) []string {
-        names := make([]string, 0, len(resources))
-        for _, resource := range resources {
-                names = append(names, resource.Name)
-        }
-        return names
+	names := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		names = append(names, resource.Name)
+	}
+	return names
 }

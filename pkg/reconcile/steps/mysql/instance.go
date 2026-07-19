@@ -1,6 +1,8 @@
 package mysql
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,12 +12,14 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	"github.com/sqc157400661/util"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
+	internalsecurity "github.com/sqc157400661/kdb/internal/security"
 	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
@@ -46,7 +50,62 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 					naming.LabelInstance: instance.Name,
 				})
 			globalConfig := rc.GetGlobalConfig()
-			replications, err := resolveReplications(rc, instance, globalConfig.GetHostResolveMode(), globalConfig.DB.ReplUser, globalConfig.DB.ReplPassword)
+			credentialSecret := &corev1.Secret{
+				ObjectMeta: naming.MySQLCredentialSecret(instance),
+				Type:       corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					naming.MySQLRootPasswordSecretKey:        []byte(globalConfig.DB.RootPassword),
+					naming.MySQLReplicationPasswordSecretKey: []byte(globalConfig.DB.ReplPassword),
+				},
+			}
+			existingCredential := &corev1.Secret{}
+			getCredentialErr := rc.Client().Get(rc.Context(), client.ObjectKeyFromObject(credentialSecret), existingCredential)
+			switch {
+			case getCredentialErr == nil &&
+				len(existingCredential.Data["ca.crt"]) > 0 &&
+				len(existingCredential.Data["tls.crt"]) > 0 &&
+				len(existingCredential.Data["tls.key"]) > 0 &&
+				len(existingCredential.Data["client.crt"]) > 0 &&
+				len(existingCredential.Data["client.key"]) > 0:
+				credentialSecret.Data["ca.crt"] = existingCredential.Data["ca.crt"]
+				credentialSecret.Data["tls.crt"] = existingCredential.Data["tls.crt"]
+				credentialSecret.Data["tls.key"] = existingCredential.Data["tls.key"]
+				credentialSecret.Data["client.crt"] = existingCredential.Data["client.crt"]
+				credentialSecret.Data["client.key"] = existingCredential.Data["client.key"]
+			case getCredentialErr == nil || apierrors.IsNotFound(getCredentialErr):
+				bundle, tlsErr := internalsecurity.GenerateRuntimeMTLSBundle(instance, "MySQL sidecar")
+				if tlsErr != nil {
+					return flow.Error(tlsErr, "generate MySQL sidecar TLS identity err")
+				}
+				credentialSecret.Data["ca.crt"] = bundle.CA
+				credentialSecret.Data["tls.crt"], credentialSecret.Data["tls.key"] = bundle.ServerCert, bundle.ServerKey
+				credentialSecret.Data["client.crt"], credentialSecret.Data["client.key"] = bundle.ClientCert, bundle.ClientKey
+			default:
+				return flow.Error(getCredentialErr, "get MySQL credential Secret err")
+			}
+			existingRootPassword, existingReplicationPassword := []byte(nil), []byte(nil)
+			if getCredentialErr == nil {
+				existingRootPassword = existingCredential.Data[naming.MySQLRootPasswordSecretKey]
+				existingReplicationPassword = existingCredential.Data[naming.MySQLReplicationPasswordSecretKey]
+			}
+			rootPassword, passwordErr := resolveMySQLCredentialValue(globalConfig.DB.RootPassword, existingRootPassword)
+			if passwordErr != nil {
+				return flow.Error(passwordErr, "resolve MySQL root credential err")
+			}
+			replicationPassword, passwordErr := resolveMySQLCredentialValue(globalConfig.DB.ReplPassword, existingReplicationPassword)
+			if passwordErr != nil {
+				return flow.Error(passwordErr, "resolve MySQL replication credential err")
+			}
+			credentialSecret.Data[naming.MySQLRootPasswordSecretKey] = rootPassword
+			credentialSecret.Data[naming.MySQLReplicationPasswordSecretKey] = replicationPassword
+			credentialSecret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
+			if err := errors.WithStack(rc.SetControllerReference(credentialSecret)); err != nil {
+				return flow.Error(err, "Set MySQL credential Secret reference err")
+			}
+			if err := errors.WithStack(rc.Apply(credentialSecret)); err != nil {
+				return flow.Error(err, "apply MySQL credential Secret err")
+			}
+			replications, err := resolveReplications(rc, instance, globalConfig.GetHostResolveMode(), globalConfig.DB.ReplUser, naming.MySQLReplicationPasswordPath)
 			if err != nil {
 				return flow.Error(err, "resolve replications err")
 			}
@@ -64,9 +123,9 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			util.StringMap(&instanceConfigMap.Data)
 			templateData := map[string]any{
 				"RootUser":                       globalConfig.DB.RootUser,
-				"RootPassword":                   globalConfig.DB.RootPassword,
+				"RootPasswordFile":               naming.MySQLRootPasswordPath,
 				"ReplUser":                       globalConfig.DB.ReplUser,
-				"ReplPassword":                   globalConfig.DB.ReplPassword,
+				"ReplPasswordFile":               naming.MySQLReplicationPasswordPath,
 				"CurrentVersion":                 naming.CurrentConfigVersion(instance),
 				"UpdateVersion":                  naming.UpdateConfigVersion(instance),
 				"Replications":                   replications,
@@ -114,8 +173,24 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 		})
 }
 
+func resolveMySQLCredentialValue(configured string, existing []byte) ([]byte, error) {
+	if strings.TrimSpace(configured) != "" {
+		return []byte(configured), nil
+	}
+	if strings.TrimSpace(string(existing)) != "" {
+		return append([]byte(nil), existing...), nil
+	}
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, fmt.Errorf("generate credential: %w", err)
+	}
+	encoded := make([]byte, hex.EncodedLen(len(raw)))
+	hex.Encode(encoded, raw)
+	return encoded, nil
+}
+
 // resolveReplications renders YAML items under replications: based on deploy arch.
-func resolveReplications(rc *context.InstanceContext, instance *v1.KDBInstance, mode, replUser, replPassword string) (string, error) {
+func resolveReplications(rc *context.InstanceContext, instance *v1.KDBInstance, mode, replUser, replPasswordFile string) (string, error) {
 	if instance == nil || instance.Spec.InstanceSet.Replicas == nil {
 		return "", nil
 	}
@@ -134,7 +209,7 @@ func resolveReplications(rc *context.InstanceContext, instance *v1.KDBInstance, 
 			"    port: "+strconv.Itoa(masterPort),
 			"    host: "+host,
 			"    repl_user: "+replUser,
-			"    repl_password: "+replPassword,
+			"    repl_password_file: "+replPasswordFile,
 			"    init_role: "+initRole,
 		)
 	}

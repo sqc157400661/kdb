@@ -57,6 +57,7 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	master := v1.HostInfo{
 		PodName: naming.InstancePodName(cluster.Spec.Instances[leaderIndex].Name, 0),
 	}
+	mainCommand, sidecarCommand, sidecarArgs := instanceRuntimeCommands(cluster.Spec.Engine)
 	instanceSet := v1.KDBInstanceSpec{
 		InstanceSet: shared.InstanceSetSpec{
 			Replicas:    desc.Replicas,
@@ -69,11 +70,12 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 			MainContainer: shared.ContainerSpec{
 				Image:     mainImage,
 				Resources: desc.Resources,
-				Command:   []string{"/bin/bash", "-c", "/kdb/bin/run_supervisor.sh"}, // TODO: format to /kdb/bin/start.sh
+				Command:   mainCommand, // TODO: format non-PostgreSQL engines to /kdb/bin/start.sh
 			},
 			SidecarContainer: shared.ContainerSpec{
 				Image:   sidecarImage,
-				Command: []string{"/kdb/bin/start.sh"},
+				Command: sidecarCommand,
+				Args:    sidecarArgs,
 				Resources: corev1.ResourceRequirements{
 					Requests: util.GenerateResource(0.1, 0.5),
 					Limits:   util.GenerateResource(0.1, 0.5),
@@ -109,6 +111,15 @@ func InitKDBInstance(rc *context.ClusterContext, instance *v1.KDBInstance, desc 
 	}
 	instance.Spec = instanceSet
 	return nil
+}
+
+func instanceRuntimeCommands(engine string) (main, sidecar, sidecarArgs []string) {
+	if engine == naming.PostgresEngine || engine == naming.PostgresEnginePG {
+		return []string{"kdb-pg-runtime"},
+			[]string{"kdb-ha"},
+			[]string{naming.PatroniConfigMountPath + "/" + naming.PatroniConfigKey}
+	}
+	return []string{"/bin/bash", "-c", "/kdb/bin/run_supervisor.sh"}, []string{"/kdb/bin/start.sh"}, nil
 }
 
 func cloneClusterMySQLSpec(cluster *v1.KDBCluster) *v1.MySQLSpec {

@@ -1,0 +1,13 @@
+apiVersion: kdb.com/v1
+kind: DBFailover
+metadata:
+  name: orders-a-mod09-fence
+  namespace: kdb
+spec:
+  operationId: mod09-fence-cluster-a-term-1
+  instanceRef:
+    name: orders-a
+  mode: dr-fence
+  clusterId: cluster-a
+  expectedTerm: 1
+  reason: MOD-09 planned cross-cluster DR exercise

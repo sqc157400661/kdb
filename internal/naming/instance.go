@@ -157,6 +157,10 @@ func InstanceConfigMap(instance *v1.KDBInstance) metav1.ObjectMeta {
 	}
 }
 
+func MySQLCredentialSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{Namespace: instance.Namespace, Name: instance.Name + "-mysql-credential"}
+}
+
 // PostgreSQLCredentialSecret returns the ObjectMeta for operator-managed
 // PostgreSQL bootstrap credentials.
 func PostgreSQLCredentialSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
@@ -164,6 +168,18 @@ func PostgreSQLCredentialSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
 		Namespace: instance.Namespace,
 		Name:      instance.Name + "-postgresql-credential",
 	}
+}
+
+// PostgreSQLTLSSecret returns the operator-managed TLS identity used by
+// PostgreSQL replication/client traffic and the native kdb-ha API.
+func PostgreSQLTLSSecret(instance *v1.KDBInstance) metav1.ObjectMeta {
+	return metav1.ObjectMeta{Namespace: instance.Namespace, Name: instance.Name + "-postgresql-tls"}
+}
+
+// PostgreSQLLeaderLeaseName is shared by the Operator fencing projector and
+// kdb-ha's Kubernetes DCS naming contract.
+func PostgreSQLLeaderLeaseName(scope string) string {
+	return scope + "-leader"
 }
 
 // InstanceRBAC returns the ObjectMeta necessary to lookup the
@@ -234,6 +250,17 @@ func InstanceSetSpec(instance *v1.KDBInstance) shared.InstanceSetSpec {
 	return instance.Spec.InstanceSet
 }
 
+// PostgreSQLSplitRuntime identifies the compatibility boundary between the
+// legacy same-image Pod and the split data/control image model.
+func PostgreSQLSplitRuntime(instance *v1.KDBInstance) bool {
+	if instance == nil {
+		return false
+	}
+	mainImage := instance.Spec.InstanceSet.MainContainer.Image
+	sidecarImage := instance.Spec.InstanceSet.SidecarContainer.Image
+	return mainImage != "" && sidecarImage != "" && mainImage != sidecarImage
+}
+
 func InstanceDataPvcSpec(instance *v1.KDBInstance) shared.PVCSpec {
 	return instance.Spec.InstanceSet.DataVolumeClaimSpec
 }
@@ -285,6 +312,14 @@ func InstanceReadWriteServiceName(instanceName string) string {
 
 func InstanceReadOnlyServiceName(instanceName string) string {
 	return instanceName + "-ro"
+}
+
+func PostgreSQLAnyServiceName(instanceName string) string {
+	return instanceName + "-any"
+}
+
+func PostgreSQLPgBouncerName(instanceName string) string {
+	return instanceName + "-pgbouncer"
 }
 
 func ClusterDomain() string {

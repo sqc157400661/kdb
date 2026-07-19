@@ -1,6 +1,7 @@
 package generate
 
 import (
+	"reflect"
 	"testing"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
@@ -8,6 +9,24 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	corev1 "k8s.io/api/core/v1"
 )
+
+func TestInstanceRuntimeCommandsPreserveNonPostgreSQLComposition(t *testing.T) {
+	for _, engine := range []string{naming.MySQLEngine, naming.ClickHouseEngine} {
+		main, sidecar, args := instanceRuntimeCommands(engine)
+		if !reflect.DeepEqual(main, []string{"/bin/bash", "-c", "/kdb/bin/run_supervisor.sh"}) ||
+			!reflect.DeepEqual(sidecar, []string{"/kdb/bin/start.sh"}) || len(args) != 0 {
+			t.Fatalf("engine %s runtime changed: main=%v sidecar=%v args=%v", engine, main, sidecar, args)
+		}
+	}
+}
+
+func TestInstanceRuntimeCommandsUseKDBHAForPostgreSQL(t *testing.T) {
+	main, sidecar, args := instanceRuntimeCommands(naming.PostgresEngine)
+	if !reflect.DeepEqual(main, []string{"kdb-pg-runtime"}) || !reflect.DeepEqual(sidecar, []string{"kdb-ha"}) ||
+		!reflect.DeepEqual(args, []string{"/etc/patroni/patroni.yaml"}) {
+		t.Fatalf("unexpected PostgreSQL runtime: main=%v sidecar=%v args=%v", main, sidecar, args)
+	}
+}
 
 func TestParameterReportSecretProjection(t *testing.T) {
 	projection := parameterReportSecretProjection()

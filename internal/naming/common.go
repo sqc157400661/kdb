@@ -10,6 +10,16 @@ const (
 )
 
 const (
+	MySQLCredentialDir                     = "mysql-secret"
+	MySQLRootPasswordSecretKey             = "root-password"
+	MySQLReplicationPasswordSecretKey      = "replication-password"
+	MySQLRootPasswordPath                  = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLRootPasswordSecretKey
+	MySQLReplicationPasswordPath           = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLReplicationPasswordSecretKey
+	MySQLRootPasswordProjectionPath        = MySQLCredentialDir + "/" + MySQLRootPasswordSecretKey
+	MySQLReplicationPasswordProjectionPath = MySQLCredentialDir + "/" + MySQLReplicationPasswordSecretKey
+)
+
+const (
 	SidecarConfigKey        = "sidecar"
 	DatabaseConfigKey       = "database"
 	PatroniConfigKey        = "patroni.yaml"
@@ -19,10 +29,25 @@ const (
 )
 
 const (
-	PostgreSQLSuperuserUsernameKey   = "superuser-username"
-	PostgreSQLSuperuserPasswordKey   = "superuser-password"
-	PostgreSQLReplicationUsernameKey = "replication-username"
-	PostgreSQLReplicationPasswordKey = "replication-password"
+	PostgreSQLSuperuserUsernameKey    = "superuser-username"
+	PostgreSQLSuperuserPasswordKey    = "superuser-password"
+	PostgreSQLReplicationUsernameKey  = "replication-username"
+	PostgreSQLReplicationPasswordKey  = "replication-password"
+	PostgreSQLBackupUsernameKey       = "backup-username"
+	PostgreSQLBackupPasswordKey       = "backup-password"
+	PostgreSQLMonitoringUsernameKey   = "monitoring-username"
+	PostgreSQLMonitoringPasswordKey   = "monitoring-password"
+	PostgreSQLRESTAPIUsernameKey      = "restapi-username"
+	PostgreSQLRESTAPIPasswordKey      = "restapi-password"
+	PostgreSQLTLSCAKey                = "ca.crt"
+	PostgreSQLTLSCertKey              = "tls.crt"
+	PostgreSQLTLSPrivateKey           = "tls.key"
+	PostgreSQLTLSClientCertKey        = "client.crt"
+	PostgreSQLTLSClientPrivateKey     = "client.key"
+	PostgreSQLPGBackRestS3Key         = "accessKey"
+	PostgreSQLPGBackRestS3SecretKey   = "secretKey"
+	PostgreSQLPGBackRestS3TokenKey    = "sessionToken"
+	PostgreSQLPGBackRestCipherPassKey = "cipherPass"
 )
 
 const (

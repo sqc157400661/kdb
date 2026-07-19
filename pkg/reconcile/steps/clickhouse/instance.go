@@ -9,6 +9,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	internalconfig "github.com/sqc157400661/kdb/internal/config"
+	internalsecurity "github.com/sqc157400661/kdb/internal/security"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
 	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	corev1 "k8s.io/api/core/v1"
@@ -128,17 +129,17 @@ func (s *InstanceStepManager) HandleDelete() kube.BindFunc {
 			if !rc.IsDeleting() {
 				return flow.Pass()
 			}
-				if err := protectedDeleteAllowed(rc.GetInstance()); err != nil {
-					return flow.Error(err, "clickhouse protected deletion blocked")
-				}
-				ready, err := prepareClickHouseDeletion(rc)
-				if err != nil {
-					return flow.Error(err, "prepare clickhouse protected deletion err")
-				}
-				if !ready {
-					return flow.RetryAfter(10*time.Second, "clickhouse protected deletion in progress")
-				}
-				step := kube.ExtractStepsFromBindFunc(s.InstanceStepManager.HandleDelete())[0]
+			if err := protectedDeleteAllowed(rc.GetInstance()); err != nil {
+				return flow.Error(err, "clickhouse protected deletion blocked")
+			}
+			ready, err := prepareClickHouseDeletion(rc)
+			if err != nil {
+				return flow.Error(err, "prepare clickhouse protected deletion err")
+			}
+			if !ready {
+				return flow.RetryAfter(10*time.Second, "clickhouse protected deletion in progress")
+			}
+			step := kube.ExtractStepsFromBindFunc(s.InstanceStepManager.HandleDelete())[0]
 			return step.Execute(rc, flow)
 		})
 }
@@ -147,53 +148,63 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 	return s.StepBinder(
 		"ClickHouseSetInstanceConfig",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
-				configMaps, err := buildClickHouseConfigMaps(rc.GetInstance())
+			configMaps, err := buildClickHouseConfigMaps(rc.GetInstance())
 			if err != nil {
 				return flow.Error(err, "build clickhouse configmap err")
 			}
-				for _, configMap := range configMaps {
-					if err = errors.WithStack(rc.SetControllerReference(configMap)); err != nil {
-						return flow.Error(err, "set clickhouse configmap reference err")
-					}
-					if err = errors.WithStack(rc.Apply(configMap)); err != nil {
-						return flow.Error(err, "apply clickhouse configmap err")
-					}
+			for _, configMap := range configMaps {
+				if err = errors.WithStack(rc.SetControllerReference(configMap)); err != nil {
+					return flow.Error(err, "set clickhouse configmap reference err")
 				}
-				if len(configMaps) > 0 {
-					rc.SetInstanceConfigMap(configMaps[0])
+				if err = errors.WithStack(rc.Apply(configMap)); err != nil {
+					return flow.Error(err, "apply clickhouse configmap err")
 				}
+			}
+			if len(configMaps) > 0 {
+				rc.SetInstanceConfigMap(configMaps[0])
+			}
 
-				secret, err := buildStandaloneSecret(rc.GetInstance())
+			secret, err := buildStandaloneSecret(rc.GetInstance())
 			if err != nil {
 				return flow.Error(err, "build clickhouse secret err")
 			}
-				existingSecret := &corev1.Secret{}
-				err = rc.Client().Get(rc.Context(), types.NamespacedName{Namespace: secret.Namespace, Name: secret.Name}, existingSecret)
-				switch {
-				case err == nil:
-					generated, generateErr := newClickHouseCredentialData()
-					if generateErr != nil {
-						return flow.Error(generateErr, "generate clickhouse credentials err")
-					}
-					secret.Data = existingSecret.Data
-					if secret.Data == nil {
-						secret.Data = map[string][]byte{}
-					}
-					for key, value := range generated {
-						if len(secret.Data[key]) == 0 {
-							secret.Data[key] = value
-						}
-					}
-					secret.Data["admin-username"] = generated["admin-username"]
-				case apierrors.IsNotFound(err):
-					secret.Data, err = newClickHouseCredentialData()
-					if err != nil {
-						return flow.Error(err, "generate clickhouse credentials err")
-					}
-				default:
-					return flow.Error(err, "get existing clickhouse secret err")
+			existingSecret := &corev1.Secret{}
+			err = rc.Client().Get(rc.Context(), types.NamespacedName{Namespace: secret.Namespace, Name: secret.Name}, existingSecret)
+			switch {
+			case err == nil:
+				generated, generateErr := newClickHouseCredentialData()
+				if generateErr != nil {
+					return flow.Error(generateErr, "generate clickhouse credentials err")
 				}
-				if err = errors.WithStack(rc.SetControllerReference(secret)); err != nil {
+				secret.Data = existingSecret.Data
+				if secret.Data == nil {
+					secret.Data = map[string][]byte{}
+				}
+				for key, value := range generated {
+					if len(secret.Data[key]) == 0 {
+						secret.Data[key] = value
+					}
+				}
+				secret.Data["admin-username"] = generated["admin-username"]
+			case apierrors.IsNotFound(err):
+				secret.Data, err = newClickHouseCredentialData()
+				if err != nil {
+					return flow.Error(err, "generate clickhouse credentials err")
+				}
+			default:
+				return flow.Error(err, "get existing clickhouse secret err")
+			}
+			if len(secret.Data["ca.crt"]) == 0 || len(secret.Data["tls.crt"]) == 0 || len(secret.Data["tls.key"]) == 0 ||
+				len(secret.Data["client.crt"]) == 0 || len(secret.Data["client.key"]) == 0 {
+				bundle, tlsErr := internalsecurity.GenerateRuntimeMTLSBundle(rc.GetInstance(), "ClickHouse sidecar")
+				if tlsErr != nil {
+					return flow.Error(tlsErr, "generate clickhouse sidecar TLS identity err")
+				}
+				secret.Data["ca.crt"] = bundle.CA
+				secret.Data["tls.crt"], secret.Data["tls.key"] = bundle.ServerCert, bundle.ServerKey
+				secret.Data["client.crt"], secret.Data["client.key"] = bundle.ClientCert, bundle.ClientKey
+			}
+			if err = errors.WithStack(rc.SetControllerReference(secret)); err != nil {
 				return flow.Error(err, "set clickhouse secret reference err")
 			}
 			if err = errors.WithStack(rc.Apply(secret)); err != nil {

@@ -33,9 +33,9 @@ func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 	report := (&config.GlobalConfig{}).GetParameterReportConfig()
 	data := map[string]any{
 		"RootUser":                       "root",
-		"RootPassword":                   "root-pass",
+		"RootPasswordFile":               naming.MySQLRootPasswordPath,
 		"ReplUser":                       "repl",
-		"ReplPassword":                   "repl-pass",
+		"ReplPasswordFile":               naming.MySQLReplicationPasswordPath,
 		"CurrentVersion":                 "1",
 		"UpdateVersion":                  "1",
 		"Replications":                   "",
@@ -100,5 +100,29 @@ func TestResolveBackupTemplateConfigLocalStorage(t *testing.T) {
 	}
 	if data["BackupRetentionDays"] != 14 {
 		t.Fatalf("BackupRetentionDays = %v, want 14", data["BackupRetentionDays"])
+	}
+}
+
+func TestResolveMySQLCredentialValueGeneratesAndPreservesFallback(t *testing.T) {
+	generated, err := resolveMySQLCredentialValue("", nil)
+	if err != nil {
+		t.Fatalf("generate empty credential: %v", err)
+	}
+	if len(generated) != 48 {
+		t.Fatalf("generated credential length = %d, want 48 hex characters", len(generated))
+	}
+	preserved, err := resolveMySQLCredentialValue("", generated)
+	if err != nil {
+		t.Fatalf("preserve generated credential: %v", err)
+	}
+	if string(preserved) != string(generated) {
+		t.Fatal("empty global configuration rotated an existing generated credential")
+	}
+	configured, err := resolveMySQLCredentialValue(" configured-secret ", generated)
+	if err != nil {
+		t.Fatalf("use configured credential: %v", err)
+	}
+	if string(configured) != " configured-secret " {
+		t.Fatalf("configured credential = %q", configured)
 	}
 }

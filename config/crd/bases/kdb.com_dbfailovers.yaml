@@ -1,0 +1,195 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.10.0
+  creationTimestamp: null
+  name: dbfailovers.kdb.com
+spec:
+  group: kdb.com
+  names:
+    kind: DBFailover
+    listKind: DBFailoverList
+    plural: dbfailovers
+    singular: dbfailover
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.operationId
+      name: Operation
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              approvalRef:
+                type: string
+              approvers:
+                items:
+                  type: string
+                type: array
+              candidate:
+                type: string
+              clusterId:
+                type: string
+              dataLossAcceptance:
+                type: string
+              expectedTerm:
+                format: int64
+                minimum: 1
+                type: integer
+              fencedTerm:
+                format: int64
+                type: integer
+              force:
+                type: boolean
+              instanceRef:
+                properties:
+                  name:
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              mode:
+                enum:
+                - switchover
+                - failover
+                - rejoin
+                - reinit
+                - restart
+                - pause
+                - resume
+                - dr-fence
+                - dr-promote
+                type: string
+              operationId:
+                minLength: 1
+                type: string
+              reason:
+                type: string
+              restartMode:
+                type: string
+            required:
+            - instanceRef
+            - mode
+            - operationId
+            type: object
+          status:
+            properties:
+              approvalRef:
+                type: string
+              approvers:
+                items:
+                  type: string
+                type: array
+              completedAt:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              currentPrimary:
+                type: string
+              currentTerm:
+                format: int64
+                type: integer
+              estimatedDataLossBytes:
+                format: int64
+                type: integer
+              eventId:
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              observedRpoSeconds:
+                format: int64
+                type: integer
+              phase:
+                type: string
+              previousPrimary:
+                type: string
+              previousTerm:
+                format: int64
+                type: integer
+              rtoSeconds:
+                format: int64
+                type: integer
+              startedAt:
+                format: date-time
+                type: string
+              steps:
+                items:
+                  properties:
+                    message:
+                      type: string
+                    name:
+                      type: string
+                    phase:
+                      type: string
+                    updatedAt:
+                      format: date-time
+                      type: string
+                  required:
+                  - name
+                  - phase
+                  - updatedAt
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

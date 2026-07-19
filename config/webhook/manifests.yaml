@@ -1,0 +1,27 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  creationTimestamp: null
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kdb-com-v1-kdbinstance-postgresql-lifecycle
+  failurePolicy: Fail
+  name: vpostgresqllifecycle.kdb.com
+  rules:
+  - apiGroups:
+    - kdb.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - kdbinstances
+  sideEffects: None

@@ -107,6 +107,11 @@ func instanceStatefulSetReplicas(instance *v1.KDBInstance) *int32 {
 // It keeps compatibility with existing master/replica labels while deriving decisions from
 // the unified topology plan instead of ad-hoc deployArch branches.
 func instanceSetRole(instance *v1.KDBInstance, setName string) string {
+	if naming.IsPGEngine(instance) {
+		// PostgreSQL traffic roles are projected only after the Operator has
+		// validated the current Lease term and kdb-ha runtime status.
+		return ""
+	}
 	plan, err := topology.ResolveInstancePlan(instance)
 	if err != nil {
 		return ""

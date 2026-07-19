@@ -76,6 +76,20 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 		},
 		parameterReportSecretProjection(),
 	}
+	if naming.IsMySQLEngine(instance) {
+		configSources = append(configSources, corev1.VolumeProjection{
+			Secret: &corev1.SecretProjection{
+				LocalObjectReference: corev1.LocalObjectReference{Name: naming.MySQLCredentialSecret(instance).Name},
+				Items: []corev1.KeyToPath{
+					{Key: naming.MySQLRootPasswordSecretKey, Path: naming.MySQLRootPasswordProjectionPath},
+					{Key: naming.MySQLReplicationPasswordSecretKey, Path: naming.MySQLReplicationPasswordProjectionPath},
+					{Key: "ca.crt", Path: naming.MySQLCredentialDir + "/ca.crt"},
+					{Key: "tls.crt", Path: naming.MySQLCredentialDir + "/tls.crt"},
+					{Key: "tls.key", Path: naming.MySQLCredentialDir + "/tls.key", Mode: func() *int32 { value := int32(0o400); return &value }()},
+				},
+			},
+		})
+	}
 	if projection, ok := backupCredentialSecretProjection(instance); ok {
 		configSources = append(configSources, projection)
 	}
@@ -159,6 +173,22 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 			Name:      "tmp",
 			MountPath: "/tmp",
 		})
+	if dr := postgreSQLDRSpec(instance); dr != nil && dr.Etcd3.SecretRef.Name != "" {
+		mode := int32(0o440)
+		vols = append(vols, corev1.Volume{
+			Name: "postgresql-dr-etcd3",
+			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+				SecretName:  dr.Etcd3.SecretRef.Name,
+				DefaultMode: &mode,
+				Items: []corev1.KeyToPath{
+					{Key: "ca.crt", Path: "ca.crt"},
+					{Key: "tls.crt", Path: "tls.crt"},
+					{Key: "tls.key", Path: "tls.key"},
+				},
+			}},
+		})
+		mounts = append(mounts, corev1.VolumeMount{Name: "postgresql-dr-etcd3", MountPath: "/etc/postgresql/dr-etcd3", ReadOnly: true})
+	}
 	return
 }
 
@@ -219,6 +249,16 @@ func backupCredentialSecretProjection(instance *v1.KDBInstance) (corev1.VolumePr
 func instanceContainer(rc *context.InstanceContext, statefulSetName string, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {
 	instance := rc.GetInstance()
 	instanceSet := naming.InstanceSetSpec(instance)
+	sidecarEnv := append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...)
+	if naming.IsMySQLEngine(instance) {
+		sidecarEnv = append(sidecarEnv, corev1.EnvVar{Name: "KDB_SIDECAR_TLS_REQUIRED", Value: "true"})
+	}
+	if dr := postgreSQLDRSpec(instance); dr != nil && dr.Etcd3.SecretRef.Name != "" {
+		sidecarEnv = append(sidecarEnv,
+			corev1.EnvVar{Name: "KDB_HA_DR_DCS_USERNAME", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: dr.Etcd3.SecretRef, Key: "username", Optional: util.Bool(true)}}},
+			corev1.EnvVar{Name: "KDB_HA_DR_DCS_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: dr.Etcd3.SecretRef, Key: "password", Optional: util.Bool(true)}}},
+		)
+	}
 	containers = append(containers, corev1.Container{
 		Name:      naming.ContainerDatabase,
 		Command:   instanceSet.MainContainer.Command,
@@ -245,7 +285,7 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 	containers = append(containers, corev1.Container{
 		Name:      naming.ContainerSidecar,
 		Command:   instanceSet.SidecarContainer.Command,
-		Env:       append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...),
+		Env:       sidecarEnv,
 		Args:      instanceSet.SidecarContainer.Args,
 		Image:     instanceSet.SidecarContainer.Image,
 		Resources: instanceSet.SidecarContainer.Resources,
@@ -260,6 +300,13 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 		containers = append(containers, mysqlExporterContainer(instance, instanceSet, mounts))
 	}
 	return
+}
+
+func postgreSQLDRSpec(instance *v1.KDBInstance) *v1.PostgreSQLDRSpec {
+	if instance == nil || instance.Spec.PostgreSQL == nil || instance.Spec.PostgreSQL.DR == nil || !instance.Spec.PostgreSQL.DR.Enabled {
+		return nil
+	}
+	return instance.Spec.PostgreSQL.DR
 }
 
 func mysqlExporterEnabled(instance *v1.KDBInstance) bool {

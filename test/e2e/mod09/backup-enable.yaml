@@ -1,0 +1,16 @@
+spec:
+  postgresql:
+    backups:
+      pgbackrest:
+        enabled: true
+        stanza: orders
+        repoType: s3
+        repoPath: /kdb/dr/orders
+        repoSecretRef:
+          name: orders-backup
+        retentionFull: 2
+        s3Bucket: kdb-dr
+        s3Endpoint: 172.19.0.241:9000
+        s3Region: us-east-1
+        s3UriStyle: path
+        s3TlsVerify: false

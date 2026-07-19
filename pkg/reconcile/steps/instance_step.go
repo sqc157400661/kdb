@@ -1,7 +1,10 @@
 package steps
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -26,6 +30,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/config"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"
+	"github.com/sqc157400661/kdb/internal/postgresqlruntime"
 	"github.com/sqc157400661/kdb/internal/rbac"
 	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
@@ -43,6 +48,7 @@ type InstanceStepper interface {
 	HandleDelete() kube.BindFunc
 	SetGlobalConfig() kube.BindFunc
 	EnsureLeader() kube.BindFunc
+	ReconcileLifecycle() kube.BindFunc
 	SetInstanceConfig() kube.BindFunc
 	SetRbac() kube.BindFunc
 	InitObservedRunner() kube.BindFunc
@@ -51,6 +57,10 @@ type InstanceStepper interface {
 	ScaleDownInstance() kube.BindFunc
 	SetMonitor() kube.BindFunc
 	ReconcileProxySQL() kube.BindFunc
+}
+
+func (s *InstanceStepManager) ReconcileLifecycle() kube.BindFunc {
+	return s.StepBinder("ReconcileLifecycle", func(_ *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) { return flow.Pass() })
 }
 
 type InstanceStepManager struct {
@@ -195,13 +205,21 @@ func (s *InstanceStepManager) HandleDelete() kube.BindFunc {
 				return flow.Continue("deleted")
 			}
 
+			jobControllerDeleted := errors.New("one-shot Job controller deleted")
 			// stop schedules pod for deletion by scaling its controller to zero.
 			stop := func(pod *corev1.Pod) error {
 				instance := &unstructured.Unstructured{}
 				instance.SetNamespace(rc.Namespace())
+				deleteController := false
 
 				switch owner := metav1.GetControllerOfNoCopy(pod); {
 				case owner == nil:
+					if pod.Labels[naming.LabelInstance] == rc.Name() {
+						if err := rc.Client().Delete(rc.Context(), pod); client.IgnoreNotFound(err) != nil {
+							return errors.WithStack(err)
+						}
+						return jobControllerDeleted
+					}
 					return errors.Errorf("pod %q has no owner", client.ObjectKeyFromObject(pod))
 
 				case owner.Kind == "StatefulSet":
@@ -209,8 +227,48 @@ func (s *InstanceStepManager) HandleDelete() kube.BindFunc {
 					instance.SetKind(owner.Kind)
 					instance.SetName(owner.Name)
 
+				case owner.Kind == "Deployment":
+					instance.SetAPIVersion(owner.APIVersion)
+					instance.SetKind(owner.Kind)
+					instance.SetName(owner.Name)
+
+				case owner.Kind == "Job":
+					// One-shot bootstrap/configuration Jobs have no replicas field.
+					// Delete the owning Job so finalization can continue safely.
+					instance.SetAPIVersion(owner.APIVersion)
+					instance.SetKind(owner.Kind)
+					instance.SetName(owner.Name)
+					deleteController = true
+
+				case owner.Kind == "ReplicaSet":
+					// Deployment Pods are controlled indirectly through a
+					// ReplicaSet. Scale the Deployment itself so it cannot
+					// immediately recreate a PgBouncer Pod during finalization.
+					replicaSet := &appsv1.ReplicaSet{}
+					replicaSet.Namespace, replicaSet.Name = rc.Namespace(), owner.Name
+					if err := rc.Get(replicaSet); err != nil {
+						return errors.WithStack(err)
+					}
+					deploymentOwner := metav1.GetControllerOfNoCopy(replicaSet)
+					if deploymentOwner != nil && deploymentOwner.Kind == "Deployment" {
+						instance.SetAPIVersion(deploymentOwner.APIVersion)
+						instance.SetKind(deploymentOwner.Kind)
+						instance.SetName(deploymentOwner.Name)
+					} else {
+						instance.SetAPIVersion(owner.APIVersion)
+						instance.SetKind(owner.Kind)
+						instance.SetName(owner.Name)
+					}
+
 				default:
 					return errors.Errorf("unexpected kind %q", owner.Kind)
+				}
+
+				if deleteController {
+					if err := rc.Client().Delete(rc.Context(), instance); client.IgnoreNotFound(err) != nil {
+						return errors.WithStack(err)
+					}
+					return jobControllerDeleted
 				}
 
 				// apps/v1.Deployment, apps/v1.ReplicaSet, and apps/v1.StatefulSet all
@@ -224,6 +282,9 @@ func (s *InstanceStepManager) HandleDelete() kube.BindFunc {
 			if len(pods.Items) == 1 {
 				// There's one instance; stop it.
 				if err = stop(&pods.Items[0]); err != nil {
+					if errors.Is(err, jobControllerDeleted) {
+						return flow.RetryAfter(time.Second, "waiting for one-shot Job Pod deletion")
+					}
 					if client.IgnoreNotFound(err) != nil {
 						return flow.RetryErr(err, err.Error())
 					}
@@ -243,6 +304,9 @@ func (s *InstanceStepManager) HandleDelete() kube.BindFunc {
 				role := pods.Items[i].Labels[naming.LabelRole]
 				if role == naming.ReplicaRole || len(role) == 0 {
 					if err = stop(&pods.Items[i]); err != nil {
+						if errors.Is(err, jobControllerDeleted) {
+							return flow.RetryAfter(time.Second, "waiting for one-shot Job Pod deletion")
+						}
 						if client.IgnoreNotFound(err) != nil {
 							return flow.RetryErr(err, err.Error())
 						}
@@ -373,6 +437,9 @@ func (s *InstanceStepManager) SetRbac() kube.BindFunc {
 				Namespace: instance.Namespace,
 			}}
 			role.Rules = rbac.KDBInstancePodPermissions()
+			if naming.IsPGEngine(instance) {
+				role.Rules = rbac.PostgreSQLInstancePodPermissions()
+			}
 			if err == nil {
 				err = errors.WithStack(rc.Apply(account))
 			}
@@ -484,9 +551,29 @@ func (s *InstanceStepManager) ScaleUpInstance() kube.BindFunc {
 			// Reconcile every desired StatefulSet, including existing sets, so
 			// spec-only changes such as shutdown can update their pod replicas.
 			var runners []*appsv1.StatefulSet
-			for i := 0; i < int(*instance.Spec.InstanceSet.Replicas); i++ {
-				next := naming.GenerateInstanceStatefulSetMeta(instance, i)
-				runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
+			desired := int(*instance.Spec.InstanceSet.Replicas)
+			if naming.IsPGEngine(instance) && rc.GetObservedRunner() != nil {
+				names := sets.NewString()
+				for _, observed := range rc.GetObservedRunner().List {
+					if observed == nil || observed.Runner == nil {
+						continue
+					}
+					names.Insert(observed.Name)
+					runners = append(runners, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: observed.Name, Namespace: instance.Namespace}})
+				}
+				for ordinal := 0; len(runners) < desired; ordinal++ {
+					next := naming.GenerateInstanceStatefulSetMeta(instance, ordinal)
+					if names.Has(next.Name) {
+						continue
+					}
+					names.Insert(next.Name)
+					runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
+				}
+			} else {
+				for i := 0; i < desired; i++ {
+					next := naming.GenerateInstanceStatefulSetMeta(instance, i)
+					runners = append(runners, &appsv1.StatefulSet{ObjectMeta: next})
+				}
 			}
 			var err error
 			for n := range runners {
@@ -509,12 +596,23 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 		"ScaleDownInstance",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
 			if naming.IsMySQLEngine(rc.GetInstance()) {
-				rolling, err := rolloutOutdatedMySQLPod(rc)
+				rolling, err := rolloutOutdatedPod(rc)
 				if err != nil {
 					return flow.Error(err, "roll out outdated mysql pod err")
 				}
 				if rolling {
 					return flow.RetryAfter(5*time.Second, "mysql pod rollout in progress")
+				}
+			} else if naming.IsPGEngine(rc.GetInstance()) {
+				if err := preparePostgreSQLCredentialRotation(rc); err != nil {
+					return flow.Error(err, "prepare postgresql credential rotation err")
+				}
+				rolling, err := rolloutOutdatedPod(rc)
+				if err != nil {
+					return flow.Error(err, "roll out outdated postgresql pod err")
+				}
+				if rolling {
+					return flow.RetryAfter(5*time.Second, "postgresql pod rollout in progress")
 				}
 			}
 			observedInstances := rc.GetObservedRunner()
@@ -531,11 +629,11 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 		})
 }
 
-// rolloutOutdatedMySQLPod advances an OnDelete StatefulSet update one ready Pod
+// rolloutOutdatedPod advances an OnDelete StatefulSet update one ready Pod
 // at a time. Replica Pods are replaced before the primary so enabling an
 // exporter or changing another Pod-template field does not restart every MySQL
 // member at once.
-func rolloutOutdatedMySQLPod(rc *context.InstanceContext) (bool, error) {
+func rolloutOutdatedPod(rc *context.InstanceContext) (bool, error) {
 	observedInstances := rc.GetObservedRunner()
 	instance := rc.GetInstance()
 	if observedInstances == nil || instance == nil || instance.Spec.InstanceSet.Replicas == nil {
@@ -563,6 +661,26 @@ func rolloutOutdatedMySQLPod(rc *context.InstanceContext) (bool, error) {
 				continue
 			}
 			pod := item.Pods[0]
+			if primary && naming.IsPGEngine(instance) && desired > 1 {
+				candidate := ""
+				if instance.Status.PostgreSQL != nil {
+					for _, member := range instance.Status.PostgreSQL.Members {
+						if member.Role == "replica" && member.Ready && member.Running {
+							candidate = member.Name
+							break
+						}
+					}
+				}
+				if candidate == "" {
+					return false, fmt.Errorf("cannot replace PostgreSQL primary without a ready switchover candidate")
+				}
+				operationID := "rolling-switchover-" + string(pod.UID)
+				payload := map[string]interface{}{"requestId": operationID, "operationId": operationID, "leader": pod.Name, "candidate": candidate, "expectedTerm": instance.Status.PostgreSQL.Term, "reason": "replica-first-lifecycle-rollout"}
+				if err := callPostgreSQLNativeAction(rc, pod.Name, "switchover", payload); err != nil {
+					return true, err
+				}
+				return true, nil
+			}
 			uid := pod.GetUID()
 			version := pod.GetResourceVersion()
 			exactly := client.Preconditions{UID: &uid, ResourceVersion: &version}
@@ -580,6 +698,101 @@ func rolloutOutdatedMySQLPod(rc *context.InstanceContext) (bool, error) {
 	return rollout(true)
 }
 
+func callPostgreSQLNativeAction(rc *context.InstanceContext, podName, action string, value map[string]interface{}) error {
+	instance := rc.GetInstance()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	httpClient, username, password, err := postgresqlruntime.Client(rc.Context(), rc.Client(), instance, 20*time.Second)
+	if err != nil {
+		return err
+	}
+	endpoint := postgresqlruntime.PodEndpoint(instance, podName) + "/v1/postgresql/actions/" + action
+	req, err := http.NewRequestWithContext(rc.Context(), http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(username, password)
+	response, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("PostgreSQL %s API returned HTTP %d", action, response.StatusCode)
+	}
+	return nil
+}
+
+// preparePostgreSQLCredentialRotation updates database role passwords before
+// any replica starts with a new Secret. Existing sessions survive ALTER ROLE,
+// so the following replica-first OnDelete rollout remains available.
+func preparePostgreSQLCredentialRotation(rc *context.InstanceContext) error {
+	observedInstances := rc.GetObservedRunner()
+	instance := rc.GetInstance()
+	if observedInstances == nil || instance == nil || instance.Spec.PostgreSQL == nil || instance.Status.PostgreSQL == nil || instance.Status.PostgreSQL.Primary == "" {
+		return nil
+	}
+	rotationRequired := false
+	for _, item := range observedInstances.List {
+		if item == nil || item.Runner == nil || len(item.Pods) != 1 {
+			continue
+		}
+		desired := item.Runner.Spec.Template.Annotations["postgresql.kdb.com/security-revision"]
+		current := item.Pods[0].Annotations["postgresql.kdb.com/security-revision"]
+		if desired != "" && desired != current {
+			rotationRequired = true
+		}
+	}
+	if !rotationRequired {
+		return nil
+	}
+
+	secretMeta := naming.PostgreSQLCredentialSecret(instance)
+	if instance.Spec.PostgreSQL.CredentialSecretRef != nil && instance.Spec.PostgreSQL.CredentialSecretRef.Name != "" {
+		secretMeta.Name = instance.Spec.PostgreSQL.CredentialSecretRef.Name
+	}
+	secret := &corev1.Secret{}
+	if err := rc.Client().Get(rc.Context(), client.ObjectKey{Namespace: instance.Namespace, Name: secretMeta.Name}, secret); err != nil {
+		return err
+	}
+	credentials := map[string]string{
+		"superuser":   string(secret.Data[naming.PostgreSQLSuperuserPasswordKey]),
+		"replication": string(secret.Data[naming.PostgreSQLReplicationPasswordKey]),
+		"backup":      string(secret.Data[naming.PostgreSQLBackupPasswordKey]),
+		"monitoring":  string(secret.Data[naming.PostgreSQLMonitoringPasswordKey]),
+	}
+	requestID := "credential-rotation-" + secret.ResourceVersion
+	payload, err := json.Marshal(map[string]interface{}{"requestId": requestID, "operationId": requestID, "reason": "operator-managed-secret-rotation", "credentials": credentials})
+	if err != nil {
+		return err
+	}
+	httpClient, username, password, err := postgresqlruntime.Client(rc.Context(), rc.Client(), instance, 15*time.Second)
+	if err != nil {
+		return err
+	}
+	endpoint := postgresqlruntime.PodEndpoint(instance, instance.Status.PostgreSQL.Primary) + "/v1/postgresql/actions/rotate-credentials"
+	req, err := http.NewRequestWithContext(rc.Context(), http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(username, password)
+	response, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("credential rotation API returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	instance := rc.GetInstance()
 	observedInstances := rc.GetObservedRunner()
@@ -592,6 +805,25 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	if wantNums > 0 {
 		for _, ins := range observedInstances.List {
 			if len(ins.Pods) > 0 && naming.IsMasterPod(ins.Pods[0]) {
+				namesToKeep.Insert(ins.Name)
+			}
+		}
+	}
+	// A synchronous replica is part of the current commit quorum. Preserve it
+	// before choosing arbitrary replicas so a scale-down never removes the only
+	// synchronous acknowledgement path while an async replica remains.
+	if naming.IsPGEngine(instance) && instance.Status.PostgreSQL != nil {
+		synchronousPods := sets.NewString()
+		for _, member := range instance.Status.PostgreSQL.Members {
+			if member.Role == "replica" && member.Synchronous {
+				synchronousPods.Insert(member.Name)
+			}
+		}
+		for _, ins := range observedInstances.List {
+			if namesToKeep.Len() >= int(wantNums) {
+				break
+			}
+			if len(ins.Pods) > 0 && synchronousPods.Has(ins.Pods[0].Name) {
 				namesToKeep.Insert(ins.Name)
 			}
 		}
@@ -624,24 +856,24 @@ func stoppedInstanceStatefulSetNames(instance *v1.KDBInstance) sets.String {
 
 // deleteSts will delete all resources related to a single sts
 func deleteSts(rc *context.InstanceContext, stsName string) error {
-	sts := appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: rc.Namespace()}}
-	err := rc.Get(&sts)
-	if client.IgnoreNotFound(err) != nil {
+	sts := &appsv1.StatefulSet{}
+	key := client.ObjectKey{Namespace: rc.Namespace(), Name: stsName}
+	if err := rc.Client().Get(rc.Context(), key, sts); err == nil {
+		return errors.WithStack(client.IgnoreNotFound(rc.Client().Delete(rc.Context(), sts)))
+	} else if !apierrors.IsNotFound(err) {
 		return errors.WithStack(err)
 	}
-	err = errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&sts)))
-	if client.IgnoreNotFound(err) != nil {
-		return err
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := rc.Client().List(rc.Context(), pvcs, client.InNamespace(rc.Namespace()), client.MatchingLabels{naming.LabelInstanceSet: stsName}); err != nil {
+		return errors.WithStack(err)
 	}
-	for _, vol := range rc.Volumes() {
-		if len(vol.Labels) > 0 && vol.Labels[naming.LabelInstanceSet] == stsName {
-			err = errors.WithStack(client.IgnoreNotFound(rc.DeleteControlled(&vol)))
-			if err == nil {
-				return client.IgnoreNotFound(err)
-			}
+	for i := range pvcs.Items {
+		if err := rc.Client().Delete(rc.Context(), &pvcs.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+			return errors.WithStack(err)
 		}
+		return nil
 	}
-	return err
+	return nil
 }
 
 func (s *InstanceStepManager) SetMonitor() kube.BindFunc {

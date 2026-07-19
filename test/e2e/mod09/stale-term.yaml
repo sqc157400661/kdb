@@ -1,0 +1,13 @@
+apiVersion: kdb.com/v1
+kind: DBFailover
+metadata:
+  name: orders-b-mod09-stale-term
+  namespace: kdb
+spec:
+  operationId: mod09-reject-stale-term-1
+  instanceRef:
+    name: orders-b
+  mode: dr-fence
+  clusterId: cluster-b
+  expectedTerm: 1
+  reason: MOD-09 stale-term rejection Gate

@@ -1,0 +1,5 @@
+FROM kdbdeveloper/operator:mod08-gate-v10
+
+COPY hack/docker/manager /kdb/bin/manager
+
+RUN chmod 0755 /kdb/bin/manager

@@ -219,6 +219,7 @@ func withClickHouseSpec(modify func(*v1.ClickHouseSpec)) *v1.ClickHouseSpec {
 		Keeper: v1.ClickHouseKeeperSpec{
 			Mode:     v1.ClickHouseKeeperDedicated,
 			Replicas: chInt32(1),
+			Instance: &shared.InstanceSetSpec{Replicas: chInt32(1)},
 		},
 		ComputeGroups: []v1.ClickHouseComputeGroupSpec{{
 			Name: "ingest",

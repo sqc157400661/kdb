@@ -1,5 +1,5 @@
 root_user: {{.RootUser}}
-root_password: {{.RootPassword}}
+root_password_file: {{.RootPasswordFile}}
 root_socket: /kdbdata/socket/mysqld.sock
 data_dir: /kdbdata/data
 current_version: {{.CurrentVersion}}
@@ -7,15 +7,15 @@ update_version: {{.UpdateVersion}}
 mysql_cnf_file: /kdbdata/etc/my.cnf
 init_users:
   - username: _monitor_user
-    password: {{.RootPassword}}
+    password_file: {{.RootPasswordFile}}
     host: localhost
     privileges: [SELECT,PROCESS,REPLICATION CLIENT]
   - username: _monitor_user
-    password: {{.RootPassword}}
+    password_file: {{.RootPasswordFile}}
     host: 127.0.0.1
     privileges: [SELECT,PROCESS,REPLICATION CLIENT]
   - username: {{.ReplUser}}
-    password: {{.ReplPassword}}
+    password_file: {{.ReplPasswordFile}}
     host: '%'
     privileges: [REPLICATION CLIENT, REPLICATION SLAVE]
 {{if .Replications}}

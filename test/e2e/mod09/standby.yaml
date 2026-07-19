@@ -1,0 +1,48 @@
+apiVersion: kdb.com/v1
+kind: KDBInstance
+metadata:
+  name: orders-b
+  namespace: kdb
+spec:
+  engine: postgresql
+  engineVersion: "17"
+  engineFullVersion: "17"
+  deployArch: Master-Replica
+  port: 5432
+  instance:
+    replicas: 3
+    mainContainer:
+      image: kdbdeveloper/postgresql17:mod09-gate
+    sidecarContainer:
+      image: kdbdeveloper/postgresql-sidecar:mod09-gate
+      command: [kdb-ha]
+      args: [/etc/patroni/patroni.yaml]
+    dataVolumeClaimSpec:
+      storageClass: standard
+      size: 1Gi
+  postgresql:
+    credentialSecretRef:
+      name: orders-pg-credential
+    ha:
+      profile: standard-ha
+      maximumLagOnFailoverBytes: 16777216
+      maximumLagOnSyncNodeBytes: 8388608
+    patroni:
+      dcs: kubernetes
+      leaderLeaseDurationSeconds: 30
+      syncPeriodSeconds: 5
+    dr:
+      enabled: true
+      role: standby
+      clusterId: cluster-b
+      peerClusterId: cluster-a
+      scope: orders-prod
+      manualPromotionOnly: true
+      etcd3:
+        endpoints: [https://172.19.0.240:2379]
+        prefix: /kdb/dr-gate
+        secretRef:
+          name: orders-dr-etcd
+      walSource:
+        primaryConnInfo: host=172.19.0.5 port=35432 user=replicator password=mod09-replication-password sslmode=verify-ca sslrootcert=/etc/postgresql/tls/ca.crt sslcert=/etc/postgresql/tls/tls.crt sslkey=/etc/postgresql/tls/tls.key
+        archivePrefix: s3://kdb-dr/kdb/dr/orders
