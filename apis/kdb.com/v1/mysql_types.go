@@ -9,6 +9,13 @@ const (
 
 // MySQLSpec contains MySQL engine specific settings.
 type MySQLSpec struct {
+	// Restore contains one-shot NewInstance restore coordination settings.
+	// The Operator still performs the local data movement through the Sidecar;
+	// this field only tells it which existing credential contract the restored
+	// target must use while the source grant tables are present.
+	// +optional
+	Restore *MySQLRestoreSpec `json:"restore,omitempty"`
+
 	// MGR configures MySQL Group Replication.
 	// +optional
 	MGR *MySQLMGRSpec `json:"mgr,omitempty"`
@@ -16,6 +23,37 @@ type MySQLSpec struct {
 	// Exporter configures the optional mysqld_exporter sidecar.
 	// +optional
 	Exporter *MySQLExporterSpec `json:"exporter,omitempty"`
+}
+
+// MySQLRestoreCredentialMode controls the root credential used while a
+// physical backup is bootstrapped into a new instance.
+//
+// AdoptSource is intentionally explicit: XtraBackup restores the source grant
+// tables, so the target must temporarily (and by default durably) use the
+// source instance's root credential until a separate rotation is requested.
+// Target keeps the target/global credential and is appropriate only when the
+// restore workflow has independently guaranteed that it matches the source.
+type MySQLRestoreCredentialMode string
+
+const (
+	MySQLRestoreCredentialModeTarget      MySQLRestoreCredentialMode = "Target"
+	MySQLRestoreCredentialModeAdoptSource MySQLRestoreCredentialMode = "AdoptSource"
+)
+
+// MySQLRestoreSpec is the Operator-side credential handoff contract for a
+// physical MySQL NewInstance restore. SourceInstanceRef is namespace-local;
+// cross-namespace restores must first create an explicit credential handoff.
+type MySQLRestoreSpec struct {
+	// CredentialMode defaults to Target for backward compatibility.
+	// +optional
+	// +kubebuilder:validation:Enum=Target;AdoptSource
+	CredentialMode MySQLRestoreCredentialMode `json:"credentialMode,omitempty"`
+
+	// SourceInstanceRef identifies the source KDBInstance whose
+	// operator-managed MySQL credential Secret is adopted.
+	// Required when CredentialMode is AdoptSource.
+	// +optional
+	SourceInstanceRef *corev1.LocalObjectReference `json:"sourceInstanceRef,omitempty"`
 }
 
 // MySQLExporterSpec contains mysqld_exporter sidecar settings.

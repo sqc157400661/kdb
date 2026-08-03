@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -48,6 +50,12 @@ const (
 	grafanaDeployment               = "kdb-grafana"
 )
 
+var (
+	monitoringLabelKeyPattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
+	monitoringSecretNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	monitoringSecretKeyPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
 type KDBMonitoringStackReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
@@ -73,6 +81,9 @@ func (r *KDBMonitoringStackReconciler) Reconcile(ctx context.Context, request ct
 	}
 	if !stack.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
+	}
+	if err := validateMonitoringStackSpec(stack); err != nil {
+		return r.patchStatus(ctx, stack, v1.MonitoringStackPhaseFailed, false, nil, "", err.Error(), time.Minute)
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(r.Config)
@@ -293,6 +304,47 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 	}
 	grafanaImage := firstNonEmptyMonitoring(stack.Spec.Grafana.Image, defaultGrafanaImage)
 	retention := firstNonEmptyMonitoring(stack.Spec.Prometheus.Retention, "15d")
+	remoteWrite := make([]map[string]any, 0, len(stack.Spec.Prometheus.RemoteWrite))
+	for _, endpoint := range stack.Spec.Prometheus.RemoteWrite {
+		item := map[string]any{"url": endpoint.URL}
+		if endpoint.AuthorizationSecretRef != nil {
+			item["authorization"] = map[string]any{
+				"type": "Bearer",
+				"credentials": map[string]any{
+					"name": endpoint.AuthorizationSecretRef.Name,
+					"key":  endpoint.AuthorizationSecretRef.Key,
+				},
+			}
+		}
+		remoteWrite = append(remoteWrite, item)
+	}
+	prometheusSpec := map[string]any{
+		"replicas":                        promReplicas,
+		"image":                           defaultPrometheusImage,
+		"serviceAccountName":              "kdb-prometheus",
+		"retention":                       retention,
+		"additionalScrapeConfigs":         map[string]any{"name": kubeletScrapeSecret, "key": "scrape-configs.yaml"},
+		"resources":                       monitoringResourceRequirements(stack.Spec.Prometheus.Resources, map[string]string{"cpu": "100m", "memory": "256Mi"}, map[string]string{"cpu": "1", "memory": "1Gi"}),
+		"serviceMonitorSelector":          map[string]any{"matchLabels": selectorLabel},
+		"serviceMonitorNamespaceSelector": map[string]any{},
+		"podMonitorSelector":              map[string]any{"matchLabels": selectorLabel},
+		"podMonitorNamespaceSelector":     map[string]any{},
+		"probeSelector":                   map[string]any{"matchLabels": selectorLabel},
+		"probeNamespaceSelector":          map[string]any{},
+		"scrapeConfigSelector":            map[string]any{"matchLabels": selectorLabel},
+		"scrapeConfigNamespaceSelector":   map[string]any{},
+		"ruleSelector":                    map[string]any{"matchLabels": selectorLabel},
+		"ruleNamespaceSelector":           map[string]any{},
+		"alerting": map[string]any{
+			"alertmanagers": []map[string]any{{"namespace": namespace, "name": alertmanagerService, "port": "web"}},
+		},
+	}
+	if len(stack.Spec.Prometheus.ExternalLabels) > 0 {
+		prometheusSpec["externalLabels"] = stack.Spec.Prometheus.ExternalLabels
+	}
+	if len(remoteWrite) > 0 {
+		prometheusSpec["remoteWrite"] = remoteWrite
+	}
 	manifests := []map[string]any{
 		monitoringNamespaceManifest(namespace),
 		kubeletScrapeSecretManifest(namespace, monitoringStackLabels("prometheus")),
@@ -338,27 +390,7 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 				"namespace": namespace,
 				"labels":    monitoringStackLabels("prometheus"),
 			},
-			"spec": map[string]any{
-				"replicas":                        promReplicas,
-				"image":                           defaultPrometheusImage,
-				"serviceAccountName":              "kdb-prometheus",
-				"retention":                       retention,
-				"additionalScrapeConfigs":         map[string]any{"name": kubeletScrapeSecret, "key": "scrape-configs.yaml"},
-				"resources":                       monitoringResourceRequirements(stack.Spec.Prometheus.Resources, map[string]string{"cpu": "100m", "memory": "256Mi"}, map[string]string{"cpu": "1", "memory": "1Gi"}),
-				"serviceMonitorSelector":          map[string]any{"matchLabels": selectorLabel},
-				"serviceMonitorNamespaceSelector": map[string]any{},
-				"podMonitorSelector":              map[string]any{"matchLabels": selectorLabel},
-				"podMonitorNamespaceSelector":     map[string]any{},
-				"probeSelector":                   map[string]any{"matchLabels": selectorLabel},
-				"probeNamespaceSelector":          map[string]any{},
-				"scrapeConfigSelector":            map[string]any{"matchLabels": selectorLabel},
-				"scrapeConfigNamespaceSelector":   map[string]any{},
-				"ruleSelector":                    map[string]any{"matchLabels": selectorLabel},
-				"ruleNamespaceSelector":           map[string]any{},
-				"alerting": map[string]any{
-					"alertmanagers": []map[string]any{{"namespace": namespace, "name": alertmanagerService, "port": "web"}},
-				},
-			},
+			"spec": prometheusSpec,
 		},
 		{
 			"apiVersion": "monitoring.coreos.com/v1",
@@ -381,6 +413,49 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 		manifests = append(manifests, grafanaManifests(namespace, grafanaImage, stack.Spec.Grafana.Resources)...)
 	}
 	return manifests
+}
+
+func validateMonitoringStackSpec(stack *v1.KDBMonitoringStack) error {
+	if stack == nil {
+		return fmt.Errorf("monitoring stack is required")
+	}
+	labels := stack.Spec.Prometheus.ExternalLabels
+	if len(labels) > 32 {
+		return fmt.Errorf("prometheus externalLabels must contain at most 32 entries")
+	}
+	for key, value := range labels {
+		if strings.HasPrefix(key, "__") || !monitoringLabelKeyPattern.MatchString(key) {
+			return fmt.Errorf("prometheus external label key %q is invalid", key)
+		}
+		if strings.TrimSpace(value) == "" || len(value) > 256 || strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("prometheus external label %q has an invalid value", key)
+		}
+	}
+	if len(stack.Spec.Prometheus.RemoteWrite) > 4 {
+		return fmt.Errorf("prometheus remoteWrite must contain at most 4 endpoints")
+	}
+	seen := make(map[string]struct{}, len(stack.Spec.Prometheus.RemoteWrite))
+	for _, endpoint := range stack.Spec.Prometheus.RemoteWrite {
+		value := strings.TrimSpace(endpoint.URL)
+		parsed, err := url.Parse(value)
+		if err != nil || len(value) > 2048 || parsed.Host == "" || parsed.User != nil ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("prometheus remote-write URL is invalid")
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return fmt.Errorf("prometheus remote-write URL is duplicated")
+		}
+		seen[value] = struct{}{}
+		if endpoint.AuthorizationSecretRef == nil {
+			continue
+		}
+		ref := endpoint.AuthorizationSecretRef
+		if len(ref.Name) == 0 || len(ref.Name) > 253 || !monitoringSecretNamePattern.MatchString(ref.Name) ||
+			len(ref.Key) == 0 || len(ref.Key) > 253 || !monitoringSecretKeyPattern.MatchString(ref.Key) {
+			return fmt.Errorf("prometheus remote-write authorization SecretKeyRef is invalid")
+		}
+	}
+	return nil
 }
 
 func kubeletScrapeSecretManifest(namespace string, labels map[string]string) map[string]any {

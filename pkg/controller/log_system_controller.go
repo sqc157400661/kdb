@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 const (
@@ -47,6 +52,7 @@ type KDBLogSystemReconciler struct {
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;get;list;patch;update;watch
@@ -123,7 +129,15 @@ func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSyst
 	if err != nil {
 		return "", err
 	}
-	hash := shortLogSystemHash(raw)
+	podScopes, err := r.collectLogPodScopes(ctx, logSystemCollectorNamespace(logSystem))
+	if err != nil {
+		return "", err
+	}
+	fluentBitConfig := renderLogSystemFluentBitConfig(logSystem.Spec.Endpoints.Write, logSystem.Spec.Collector.ExtraLogDirs)
+	parsersConfig := renderLogSystemFluentBitParsers()
+	podScopeLua := renderLogSystemPodScopeLua(podScopes)
+	hashBody := append(append(append(append([]byte{}, raw...), fluentBitConfig...), parsersConfig...), podScopeLua...)
+	hash := shortLogSystemHash(hashBody)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: logSystem.Namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
 		if err := controllerutil.SetControllerReference(logSystem, cm, r.Scheme); err != nil {
@@ -133,8 +147,9 @@ func (r *KDBLogSystemReconciler) reconcileConfigMap(ctx context.Context, logSyst
 		cm.Data = map[string]string{
 			"backend.json":    string(raw),
 			"configHash":      hash,
-			"fluent-bit.conf": renderLogSystemFluentBitConfig(logSystem.Spec.Endpoints.Write, logSystem.Spec.Collector.ExtraLogDirs),
-			"parsers.conf":    renderLogSystemFluentBitParsers(),
+			"fluent-bit.conf": fluentBitConfig,
+			"parsers.conf":    parsersConfig,
+			"pod_scope.lua":   podScopeLua,
 		}
 		return nil
 	})
@@ -316,6 +331,7 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 					{Name: "backend-config", MountPath: "/fluent-bit/etc", ReadOnly: true},
 					{Name: "varlog", MountPath: "/var/log", ReadOnly: true},
 					{Name: "kubelet-pods", MountPath: "/var/lib/kubelet/pods", ReadOnly: true},
+					{Name: "local-path-pvs", MountPath: "/var/local-path-provisioner", ReadOnly: true},
 				},
 			}}
 			ds.Spec.Template.Spec.Volumes = []corev1.Volume{
@@ -332,6 +348,13 @@ func (r *KDBLogSystemReconciler) reconcileCollectorDaemonSet(ctx context.Context
 				{
 					Name:         "kubelet-pods",
 					VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods"}},
+				},
+				{
+					Name: "local-path-pvs",
+					VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+						Path: "/var/local-path-provisioner",
+						Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
+					}},
 				},
 			}
 			return nil
@@ -361,8 +384,8 @@ func renderLogSystemFluentBitConfig(writeEndpoint string, extraLogDirs []string)
 [INPUT]
     Name              tail
     Path              %s
-    Parser            mysql_file
-    Tag               kdb.mysql.file
+    Parser            database_file
+    Tag               kdb.database.file
     Path_Key          file_path
     Refresh_Interval  5
     Mem_Buf_Limit     50MB
@@ -376,23 +399,24 @@ func renderLogSystemFluentBitConfig(writeEndpoint string, extraLogDirs []string)
     K8S-Logging.Parser  On
     K8S-Logging.Exclude Off
 
+[FILTER]
+    Name                lua
+    Match               *
+    Script              pod_scope.lua
+    Call                enrich_pod_scope
+
 [OUTPUT]
     Name        loki
     Match       *
 %s
     Labels      job=kdb,source=fluent-bit
-    Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path
+    Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$pod_uid,$pod_name,$pod_namespace,$file_path
     Line_Format json
 `, strings.Join(renderLogSystemFileLogPaths(extraLogDirs), ","), renderLogSystemLokiOutputEndpoint(writeEndpoint))
 }
 
 func renderLogSystemFileLogPaths(extraLogDirs []string) []string {
-	dirs := []string{
-		"/kdbdata/log",
-		"/kdb/logs",
-		"/log",
-		"/logs",
-	}
+	dirs := []string{"/kdbdata/log"}
 	dirs = append(dirs, extraLogDirs...)
 	seenDirs := map[string]struct{}{}
 	seenPaths := map[string]struct{}{}
@@ -406,6 +430,20 @@ func renderLogSystemFileLogPaths(extraLogDirs []string) []string {
 			continue
 		}
 		seenDirs[dir] = struct{}{}
+		if dir == "/kdbdata/log" {
+			// /kdbdata is the data PVC's container mount point. At the CSI
+			// volume root the same directory is mount/log/.
+			for _, path := range []string{
+				"/var/lib/kubelet/pods/*/volumes/*/*/mount/log/*.log",
+				"/var/local-path-provisioner/*/log/*.log",
+			} {
+				if _, ok := seenPaths[path]; !ok {
+					seenPaths[path] = struct{}{}
+					paths = append(paths, path)
+				}
+			}
+			continue
+		}
 		for _, prefix := range []string{
 			"/var/lib/kubelet/pods/*/volumes/*/*",
 			"/var/lib/kubelet/pods/*/volumes/*/*/mount",
@@ -419,6 +457,93 @@ func renderLogSystemFileLogPaths(extraLogDirs []string) []string {
 		}
 	}
 	return paths
+}
+
+type logPodScope struct {
+	PodUID    string
+	PodName   string
+	Namespace string
+}
+
+func (r *KDBLogSystemReconciler) collectLogPodScopes(ctx context.Context, namespace string) (map[string]logPodScope, error) {
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	scopes := map[string]logPodScope{}
+	ambiguous := map[string]struct{}{}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if !pod.DeletionTimestamp.IsZero() || pod.UID == "" || strings.TrimSpace(pod.Labels["kdb.instance"]) == "" || strings.EqualFold(pod.Labels["kdb.com/component"], "keeper") {
+			continue
+		}
+		scope := logPodScope{PodUID: string(pod.UID), PodName: pod.Name, Namespace: pod.Namespace}
+		for _, volume := range pod.Spec.Volumes {
+			if volume.PersistentVolumeClaim == nil || strings.TrimSpace(volume.PersistentVolumeClaim.ClaimName) == "" {
+				continue
+			}
+			claim := strings.TrimSpace(volume.PersistentVolumeClaim.ClaimName)
+			if existing, ok := scopes[claim]; ok && existing.PodUID != scope.PodUID {
+				delete(scopes, claim)
+				ambiguous[claim] = struct{}{}
+				continue
+			}
+			if _, conflict := ambiguous[claim]; !conflict {
+				scopes[claim] = scope
+			}
+		}
+	}
+	return scopes, nil
+}
+
+func renderLogSystemPodScopeLua(scopes map[string]logPodScope) string {
+	claims := make([]string, 0, len(scopes))
+	for claim := range scopes {
+		claims = append(claims, claim)
+	}
+	sort.Strings(claims)
+	var builder strings.Builder
+	builder.WriteString("local pod_scopes = {\n")
+	for _, claim := range claims {
+		scope := scopes[claim]
+		fmt.Fprintf(&builder, "  [%s] = { pod_uid = %s, pod_name = %s, pod_namespace = %s },\n",
+			strconv.Quote(claim), strconv.Quote(scope.PodUID), strconv.Quote(scope.PodName), strconv.Quote(scope.Namespace))
+	}
+	builder.WriteString(`}
+
+local function set_if_empty(record, key, value)
+  if value ~= nil and value ~= "" and (record[key] == nil or record[key] == "") then
+    record[key] = value
+  end
+end
+
+function enrich_pod_scope(tag, timestamp, record)
+  local kubernetes = record["kubernetes"]
+  if type(kubernetes) == "table" then
+    set_if_empty(record, "pod_uid", kubernetes["pod_id"] or kubernetes["pod_uid"])
+    set_if_empty(record, "pod_name", kubernetes["pod_name"])
+    set_if_empty(record, "pod_namespace", kubernetes["namespace_name"])
+  end
+
+  local file_path = record["file_path"]
+  if type(file_path) == "string" then
+    set_if_empty(record, "pod_uid", string.match(file_path, "/pods/([^/]+)/volumes/"))
+    local claim = string.match(file_path, "/var/local%-path%-provisioner/[^/]+_[^_]+_([^/]+)/log/[^/]+%.log$")
+    local scope = claim and pod_scopes[claim] or nil
+    if scope ~= nil then
+      set_if_empty(record, "pod_uid", scope.pod_uid)
+      set_if_empty(record, "pod_name", scope.pod_name)
+      set_if_empty(record, "pod_namespace", scope.pod_namespace)
+    end
+  end
+  return 1, timestamp, record
+end
+`)
+	return builder.String()
+}
+
+func hostPathTypePtr(value corev1.HostPathType) *corev1.HostPathType {
+	return &value
 }
 
 func normalizeLogSystemContainerLogDir(dir string) string {
@@ -469,7 +594,7 @@ func renderLogSystemFluentBitParsers() string {
     Time_Format %Y-%m-%dT%H:%M:%S.%L%z
 
 [PARSER]
-    Name        mysql_file
+    Name        database_file
     Format      regex
     Regex       ^(?<log>.*)$
 `
@@ -505,7 +630,29 @@ func (r *KDBLogSystemReconciler) SetupWithManager(mgr manager.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.Service{}).
+		Watches(&source.Kind{Type: &corev1.Pod{}}, handler.EnqueueRequestsFromMapFunc(logSystemRequestsForDatabasePod(mgr.GetClient()))).
 		Complete(r)
+}
+
+func logSystemRequestsForDatabasePod(cache client.Client) handler.MapFunc {
+	return func(object client.Object) []reconcile.Request {
+		if cache == nil || object == nil || strings.TrimSpace(object.GetLabels()["kdb.instance"]) == "" {
+			return nil
+		}
+		logSystems := &v1.KDBLogSystemList{}
+		if err := cache.List(context.Background(), logSystems); err != nil {
+			return nil
+		}
+		requests := make([]reconcile.Request, 0, len(logSystems.Items))
+		for i := range logSystems.Items {
+			logSystem := &logSystems.Items[i]
+			if logSystemCollectorNamespace(logSystem) != object.GetNamespace() {
+				continue
+			}
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: logSystem.Namespace, Name: logSystem.Name}})
+		}
+		return requests
+	}
 }
 
 func desiredLogSystemReplicas(logSystem *v1.KDBLogSystem) int32 {

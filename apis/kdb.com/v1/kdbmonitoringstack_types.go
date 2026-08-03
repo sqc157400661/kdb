@@ -24,9 +24,33 @@ type MonitoringStackPrometheusSpec struct {
 	// +kubebuilder:default="15d"
 	Retention string `json:"retention,omitempty"`
 
+	// ExternalLabels are attached to every Prometheus series so a central
+	// backend can distinguish Cells without relying on cluster-local labels.
+	// Values are validated by the monitoring-stack controller.
+	// +optional
+	ExternalLabels map[string]string `json:"externalLabels,omitempty"`
+
+	// RemoteWrite forwards metrics to an explicitly configured endpoint. The
+	// bearer token, when needed, is read from a Secret in the monitoring
+	// namespace; raw credentials are never accepted in this CRD.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	RemoteWrite []MonitoringStackRemoteWriteSpec `json:"remoteWrite,omitempty"`
+
 	// Resources controls Prometheus container requests and limits.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+type MonitoringStackRemoteWriteSpec struct {
+	// URL is the HTTPS/HTTP remote-write endpoint.
+	// +kubebuilder:validation:MinLength=1
+	URL string `json:"url"`
+
+	// AuthorizationSecretRef points to a bearer token Secret key in the
+	// monitoring namespace. The Secret itself is managed separately.
+	// +optional
+	AuthorizationSecretRef *corev1.SecretKeySelector `json:"authorizationSecretRef,omitempty"`
 }
 
 type MonitoringStackAlertmanagerSpec struct {

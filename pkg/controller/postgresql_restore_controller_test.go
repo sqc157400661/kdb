@@ -17,10 +17,15 @@ import (
 func TestDBRestoreCreatesOnlyNewInstanceAndWaitsForPrimary(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
-	source := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "kdb"}, Spec: v1.KDBInstanceSpec{Engine: "postgresql", EngineVersion: "17", PostgreSQL: &v1.PostgreSQLSpec{Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "s3", S3Bucket: "backups"}}}}}
+	_ = corev1.AddToScheme(scheme)
+	source := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "kdb", Labels: map[string]string{"kdb.io/instance-id": "orders"}}, Spec: v1.KDBInstanceSpec{Engine: "postgresql", EngineVersion: "17", Leader: v1.HostInfo{PodName: "orders0-0"}, PostgreSQL: &v1.PostgreSQLSpec{Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "s3", S3Bucket: "backups"}}}}}
 	backup := &v1.DBBackup{ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "kdb"}, Spec: v1.DBBackupSpec{OperationID: "b", InstanceRef: corev1.LocalObjectReference{Name: "orders"}, Type: "full"}, Status: v1.DBBackupStatus{Phase: v1.DBBackupPhaseSucceeded, Artifact: &v1.DBBackupArtifactStatus{BackupID: "20260715F"}}}
 	restore := &v1.DBRestore{ObjectMeta: metav1.ObjectMeta{Name: "restore", Namespace: "kdb"}, Spec: v1.DBRestoreSpec{OperationID: "r", BackupRef: corev1.LocalObjectReference{Name: "backup"}, Mode: "NewInstance", TargetInstanceName: "orders-restored", Target: v1.DBRestoreTarget{Type: "lsn", Value: "0/200"}}}
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(source, backup, restore).Build()
+	sourceCredential := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders-postgresql-credential", Namespace: "kdb"},
+		Data:       map[string][]byte{"postgres-password": []byte("test-only")},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(source, backup, restore, sourceCredential).Build()
 	reconciler := &DBRestoreReconciler{Client: client, Scheme: scheme}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "kdb", Name: "restore"}}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
@@ -33,9 +38,36 @@ func TestDBRestoreCreatesOnlyNewInstanceAndWaitsForPrimary(t *testing.T) {
 	if target.Spec.PostgreSQL == nil || target.Spec.PostgreSQL.Restore == nil || target.Spec.PostgreSQL.Restore.BackupID != "20260715F" || target.Spec.PostgreSQL.Restore.TargetType != "lsn" || target.Spec.PostgreSQL.Restore.TargetAction != "promote" {
 		t.Fatalf("target restore %#v", target.Spec.PostgreSQL)
 	}
+	if target.Spec.Leader.PodName != "" || target.Spec.Shutdown == nil || *target.Spec.Shutdown ||
+		target.Spec.PostgreSQL.CredentialSecretRef == nil || target.Spec.PostgreSQL.CredentialSecretRef.Name != "orders-restored-postgresql-credential" ||
+		target.Labels["kdb.io/instance-id"] != "orders-restored" {
+		t.Fatalf("target identity was not normalized: metadata=%#v spec=%#v", target.ObjectMeta, target.Spec)
+	}
+	targetCredential := &corev1.Secret{}
+	if err := client.Get(context.Background(), types.NamespacedName{Namespace: "kdb", Name: "orders-restored-postgresql-credential"}, targetCredential); err != nil {
+		t.Fatal(err)
+	}
+	if string(targetCredential.Data["postgres-password"]) != "test-only" ||
+		len(targetCredential.OwnerReferences) != 1 || targetCredential.OwnerReferences[0].Name != target.Name {
+		t.Fatalf("target credential was not cloned independently: metadata=%#v keys=%d", targetCredential.ObjectMeta, len(targetCredential.Data))
+	}
 	target.Status.PostgreSQL = &v1.PostgreSQLStatus{Ready: true, Primary: "orders-restored0-0"}
+	target.Status.Conditions = []metav1.Condition{{
+		Type:               v1.PostgreSQLAvailable,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: target.Generation,
+	}}
 	if err := client.Update(context.Background(), target); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Get(context.Background(), types.NamespacedName{Namespace: "kdb", Name: "orders-restored"}, target); err != nil {
+		t.Fatal(err)
+	}
+	if target.Spec.PostgreSQL.Restore != nil {
+		t.Fatalf("restore bootstrap was not cleared: %#v", target.Spec.PostgreSQL.Restore)
 	}
 	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -46,6 +78,93 @@ func TestDBRestoreCreatesOnlyNewInstanceAndWaitsForPrimary(t *testing.T) {
 	}
 	if got.Status.Phase != v1.DBRestorePhaseSucceeded {
 		t.Fatalf("restore status %#v", got.Status)
+	}
+}
+
+func TestDBRestoreLocalRepositoryUsesBackupExecutorPVC(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	source := &v1.KDBInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "kdb"},
+		Spec: v1.KDBInstanceSpec{
+			Engine: "postgresql", EngineVersion: "17",
+			PostgreSQL: &v1.PostgreSQLSpec{Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "local"}}},
+		},
+	}
+	backup := &v1.DBBackup{
+		ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "kdb"},
+		Spec:       v1.DBBackupSpec{InstanceRef: corev1.LocalObjectReference{Name: source.Name}},
+		Status: v1.DBBackupStatus{
+			Phase:       v1.DBBackupPhaseSucceeded,
+			ExecutorPod: "orders2-0",
+			Artifact:    &v1.DBBackupArtifactStatus{BackupID: "20260715F"},
+		},
+	}
+	restore := &v1.DBRestore{
+		ObjectMeta: metav1.ObjectMeta{Name: "restore", Namespace: "kdb"},
+		Spec:       v1.DBRestoreSpec{OperationID: "r", BackupRef: corev1.LocalObjectReference{Name: backup.Name}, Mode: "NewInstance", TargetInstanceName: "orders-restored"},
+	}
+	sourceCredential := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders-postgresql-credential", Namespace: "kdb"},
+		Data:       map[string][]byte{"postgres-password": []byte("test-only")},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(source, backup, restore, sourceCredential).Build()
+	reconciler := &DBRestoreReconciler{Client: client, Scheme: scheme}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "kdb", Name: "restore"}}); err != nil {
+		t.Fatal(err)
+	}
+	target := &v1.KDBInstance{}
+	if err := client.Get(context.Background(), types.NamespacedName{Namespace: "kdb", Name: "orders-restored"}, target); err != nil {
+		t.Fatal(err)
+	}
+	if got := target.Annotations[restoreLocalRepositoryPVCAnnotation]; got != "orders2-kdb-data" {
+		t.Fatalf("restore repository PVC=%q, want orders2-kdb-data", got)
+	}
+}
+
+func TestSucceededDBRestoreDetachesBootstrapWithoutSourceInstance(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	target := &v1.KDBInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "orders-restored",
+			Namespace:   "kdb",
+			Annotations: map[string]string{restoreOperationAnnotation: "r", restoreLocalRepositoryPVCAnnotation: "orders0-kdb-data"},
+		},
+		Spec: v1.KDBInstanceSpec{
+			Engine: "postgresql",
+			PostgreSQL: &v1.PostgreSQLSpec{
+				Restore: &v1.PostgreSQLRestoreBootstrapSpec{OperationID: "r", BackupID: "20260715F"},
+			},
+		},
+	}
+	restore := &v1.DBRestore{
+		ObjectMeta: metav1.ObjectMeta{Name: "restore", Namespace: "kdb"},
+		Spec:       v1.DBRestoreSpec{OperationID: "r", Mode: "NewInstance", TargetInstanceName: target.Name},
+		Status: v1.DBRestoreStatus{
+			Phase:             v1.DBRestorePhaseSucceeded,
+			TargetInstanceRef: &corev1.LocalObjectReference{Name: target.Name},
+		},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(target, restore).Build()
+	reconciler := &DBRestoreReconciler{Client: client, Scheme: scheme}
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "kdb", Name: restore.Name}}
+	if _, err := reconciler.Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	got := &v1.KDBInstance{}
+	if err := client.Get(context.Background(), types.NamespacedName{Namespace: "kdb", Name: target.Name}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.PostgreSQL == nil || got.Spec.PostgreSQL.Restore != nil {
+		t.Fatalf("restore bootstrap was not removed: %#v", got.Spec.PostgreSQL)
+	}
+	if got.Annotations[restoreLocalRepositoryPVCAnnotation] != "" {
+		t.Fatalf("source repository PVC annotation was not removed: %#v", got.Annotations)
+	}
+	if got.Annotations[restoreOperationAnnotation] != "r" {
+		t.Fatalf("restore identity annotation changed: %#v", got.Annotations)
 	}
 }
 

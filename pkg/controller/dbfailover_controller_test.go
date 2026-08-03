@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/apis/shared"
 )
 
 func TestValidateDBFailoverSafetyPolicy(t *testing.T) {
@@ -31,6 +33,17 @@ func TestValidateDBFailoverSafetyPolicy(t *testing.T) {
 	op.Spec.Approvers, op.Spec.FencedTerm = []string{"alice", "bob"}, 7
 	if target, phase, reason := validateDBFailover(op, instance); target != "pg1" || phase != "" {
 		t.Fatalf("valid force target=%q phase=%q reason=%q", target, phase, reason)
+	}
+	instance.Status.PostgreSQL.Primary = ""
+	instance.Status.PostgreSQL.Members = nil
+	instance.Status.InstanceSet.PodInfos = []shared.PodStatusInfo{{PodName: "pg0", PodPhase: corev1.PodRunning}}
+	op.Spec.Mode = "resume"
+	if target, phase, reason := validateDBFailover(op, instance); target != "pg0" || phase != "" {
+		t.Fatalf("resume without primary target=%q phase=%q reason=%q", target, phase, reason)
+	}
+	op.Spec.Mode = "pause"
+	if _, phase, _ := validateDBFailover(op, instance); phase != v1.DBFailoverPhaseWaitingForCandidate {
+		t.Fatalf("pause without primary phase=%q", phase)
 	}
 }
 

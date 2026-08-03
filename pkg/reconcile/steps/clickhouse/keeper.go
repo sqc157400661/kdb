@@ -43,9 +43,9 @@ func buildKeeperHeadlessService(instance *v1.KDBInstance) (*corev1.Service, erro
 	}}
 	service.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
 	service.Spec = corev1.ServiceSpec{
-		ClusterIP: corev1.ClusterIPNone,
+		ClusterIP:                corev1.ClusterIPNone,
 		PublishNotReadyAddresses: true,
-		Selector:  naming.ClickHouseLabels(instance.Name, naming.ClickHouseComponentKeeper),
+		Selector:                 naming.ClickHouseLabels(instance.Name, naming.ClickHouseComponentKeeper),
 		Ports: []corev1.ServicePort{
 			{Name: "client", Port: naming.ClickHouseKeeperClientPort(), TargetPort: intstr.FromString("client"), Protocol: corev1.ProtocolTCP},
 			{Name: "raft", Port: naming.ClickHouseKeeperRaftPort(), TargetPort: intstr.FromString("raft"), Protocol: corev1.ProtocolTCP},
@@ -143,7 +143,7 @@ func keeperAffinity(instance *v1.KDBInstance, configured *corev1.Affinity) *core
 		affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution,
 		corev1.PodAffinityTerm{
 			LabelSelector: &metav1.LabelSelector{MatchLabels: naming.ClickHouseLabels(instance.Name, naming.ClickHouseComponentKeeper)},
-			TopologyKey: "kubernetes.io/hostname",
+			TopologyKey:   "kubernetes.io/hostname",
 		},
 	)
 	return affinity
@@ -236,18 +236,47 @@ func reconcileKeeperStatefulSets(rc *context.InstanceContext) error {
 		return err
 	}
 	existingNames := map[string]struct{}{}
-	for i := range existing.Items {
-		existingNames[existing.Items[i].Name] = struct{}{}
-		if existing.Items[i].Status.ReadyReplicas < 1 {
-			return nil
-		}
-	}
+	desiredByName := make(map[string]*appsv1.StatefulSet, len(statefulSets))
 	for _, sts := range statefulSets {
-		if _, exists := existingNames[sts.Name]; !exists {
-			if err = errors.WithStack(rc.SetControllerReference(sts)); err != nil {
+		desiredByName[sts.Name] = sts
+	}
+	for i := range existing.Items {
+		current := &existing.Items[i]
+		existingNames[current.Name] = struct{}{}
+	}
+
+	// A multi-member Keeper cannot elect a leader until a quorum of its Raft
+	// peers exists. Create every missing member during bootstrap before applying
+	// the normal one-member-at-a-time readiness and rollout gates. Otherwise the
+	// first member waits forever for peers that the reconciler has not created.
+	createdMissingMember := false
+	for _, sts := range missingKeeperStatefulSets(statefulSets, existingNames) {
+		if err = errors.WithStack(rc.SetControllerReference(sts)); err != nil {
+			return err
+		}
+		if err = errors.WithStack(rc.Apply(sts)); err != nil {
+			return err
+		}
+		createdMissingMember = true
+	}
+	if createdMissingMember {
+		return nil
+	}
+
+	for i := range existing.Items {
+		current := &existing.Items[i]
+		desired := desiredByName[current.Name]
+		if desired != nil && keeperReplicaReconcileRequired(current, desired) {
+			if err = preserveStatefulSetClaimTemplates(rc, desired); err != nil {
 				return err
 			}
-			return errors.WithStack(rc.Apply(sts))
+			if err = errors.WithStack(rc.SetControllerReference(desired)); err != nil {
+				return err
+			}
+			return errors.WithStack(rc.Apply(desired))
+		}
+		if existing.Items[i].Status.ReadyReplicas < 1 {
+			return nil
 		}
 	}
 	for _, sts := range statefulSets {
@@ -262,6 +291,23 @@ func reconcileKeeperStatefulSets(rc *context.InstanceContext) error {
 		}
 	}
 	return nil
+}
+
+func missingKeeperStatefulSets(desired []*appsv1.StatefulSet, existingNames map[string]struct{}) []*appsv1.StatefulSet {
+	missing := make([]*appsv1.StatefulSet, 0, len(desired))
+	for _, sts := range desired {
+		if _, exists := existingNames[sts.Name]; !exists {
+			missing = append(missing, sts)
+		}
+	}
+	return missing
+}
+
+func keeperReplicaReconcileRequired(current, desired *appsv1.StatefulSet) bool {
+	if current == nil || desired == nil || current.Spec.Replicas == nil || desired.Spec.Replicas == nil {
+		return false
+	}
+	return *current.Spec.Replicas != *desired.Spec.Replicas
 }
 
 func keeperReadiness(rc *context.InstanceContext) (int32, int32, error) {

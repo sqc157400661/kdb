@@ -209,11 +209,21 @@ func validateDBFailover(operation *v1.DBFailover, instance *v1.KDBInstance) (str
 			}
 		}
 		return member.Name, "", ""
-	case "pause", "resume":
+	case "pause":
 		if pg.Primary == "" {
 			return "", v1.DBFailoverPhaseWaitingForCandidate, "primary is unavailable"
 		}
 		return pg.Primary, "", ""
+	case "resume":
+		if pg.Primary != "" {
+			return pg.Primary, "", ""
+		}
+		for _, pod := range instance.Status.InstanceSet.PodInfos {
+			if pod.PodName != "" && pod.PodPhase == corev1.PodRunning {
+				return pod.PodName, "", ""
+			}
+		}
+		return "", v1.DBFailoverPhaseWaitingForCandidate, "no running instance Pod is available to clear pause"
 	case "restart":
 		target := operation.Spec.Candidate
 		if target == "" {

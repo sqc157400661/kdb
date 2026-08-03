@@ -43,19 +43,22 @@ func TestBuildStandaloneStatefulSet(t *testing.T) {
 	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], clickHouseDataMountPath) {
 		t.Fatalf("database container should mount %s", clickHouseDataMountPath)
 	}
+	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], naming.DataMountPath) ||
+		!containerMountsPath(sts.Spec.Template.Spec.Containers[1], naming.DataMountPath) {
+		t.Fatalf("database and sidecar must share canonical data root %s", naming.DataMountPath)
+	}
 	if !podHasVolume(sts.Spec.Template.Spec.Volumes, clickHouseTmpVolumeName) {
 		t.Fatalf("pod should define writable %s emptyDir volume", clickHouseTmpVolumeName)
-	}
-	if !podHasVolume(sts.Spec.Template.Spec.Volumes, clickHouseLogVolumeName) {
-		t.Fatalf("pod should define writable %s emptyDir volume", clickHouseLogVolumeName)
 	}
 	for _, container := range sts.Spec.Template.Spec.Containers {
 		if !containerMountsPath(container, "/tmp") {
 			t.Fatalf("%s container should mount writable /tmp", container.Name)
 		}
 	}
-	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], clickHouseLogMountPath) {
-		t.Fatalf("database container should mount %s", clickHouseLogMountPath)
+	if len(sts.Spec.Template.Spec.InitContainers) != 1 || sts.Spec.Template.Spec.InitContainers[0].Name != "database-log-init" ||
+		!containerMountsPath(sts.Spec.Template.Spec.InitContainers[0], naming.DataMountPath) ||
+		!strings.Contains(strings.Join(sts.Spec.Template.Spec.InitContainers[0].Command, " "), naming.DatabaseLogRoot) {
+		t.Fatalf("canonical log directory init is missing: %#v", sts.Spec.Template.Spec.InitContainers)
 	}
 	if containerHasEnv(sts.Spec.Template.Spec.Containers[0], "CLICKHOUSE_PASSWORD") {
 		t.Fatalf("database container must not set CLICKHOUSE_PASSWORD because the ClickHouse entrypoint writes users.d/default-user.xml when it is present")
@@ -96,6 +99,7 @@ func TestBuildStandaloneConfigMapAndSecret(t *testing.T) {
 		clickHouseNetworkKey,
 		clickHouseInterserverKey,
 		clickHouseStoragePolicyKey,
+		clickHouseLoggingKey,
 		clickHouseUsersKey,
 		clickHouseProfilesKey,
 		clickHouseQuotasKey,
@@ -107,6 +111,10 @@ func TestBuildStandaloneConfigMapAndSecret(t *testing.T) {
 	}
 	if !strings.Contains(cm.Data[clickHouseRemoteServersKey], "kdb_ingest_group") {
 		t.Fatalf("remote_servers should include kdb_ingest_group")
+	}
+	if !strings.Contains(cm.Data[clickHouseLoggingKey], naming.DatabaseLogRoot+"/clickhouse-server.log") ||
+		!strings.Contains(cm.Data[clickHouseLoggingKey], naming.DatabaseLogRoot+"/clickhouse-server-error.log") {
+		t.Fatalf("clickhouse file logs are not canonical: %s", cm.Data[clickHouseLoggingKey])
 	}
 	if !strings.Contains(cm.Data[clickHouseNetworkKey], "<listen_host>0.0.0.0</listen_host>") {
 		t.Fatalf("network config should allow kubelet probes and Services to reach ClickHouse on the Pod IP")
@@ -197,6 +205,7 @@ func standaloneInstance() *v1.KDBInstance {
 			},
 			ClickHouse: &v1.ClickHouseSpec{
 				DataShards: 1,
+				Backup:     &v1.ClickHouseBackupSpec{Enabled: chTestBool(true)},
 				Keeper: v1.ClickHouseKeeperSpec{
 					Mode:     v1.ClickHouseKeeperDedicated,
 					Replicas: chTestInt32(1),

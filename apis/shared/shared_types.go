@@ -140,6 +140,10 @@ type PodStatusInfo struct {
 	// +optional
 	PodName string `json:"podName,omitempty"`
 
+	// PodUID identifies the exact Pod incarnation and changes after recreation.
+	// +optional
+	PodUID string `json:"podUID,omitempty"`
+
 	// PodStatus
 	// +optional
 	PodPhase corev1.PodPhase `json:"podPhase,omitempty"`

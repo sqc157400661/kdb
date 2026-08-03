@@ -23,9 +23,7 @@ const (
 	clickHouseSecretVolumeName      = "clickhouse-secret"
 	clickHouseRuntimeVolumeName     = "clickhouse-runtime"
 	clickHouseTmpVolumeName         = "clickhouse-tmp"
-	clickHouseLogVolumeName         = "clickhouse-log"
 	clickHouseDataMountPath         = "/var/lib/clickhouse"
-	clickHouseLogMountPath          = "/var/log/clickhouse-server"
 	clickHouseConfigMountPath       = "/etc/clickhouse-server"
 	clickHouseSidecarConfigPath     = "/etc/kdb-sidecar"
 	clickHouseBackupRunnerContainer = "clickhouse-backup"
@@ -134,6 +132,7 @@ func buildClickHouseStatefulSet(instance *v1.KDBInstance, plan clickHouseHostPla
 	}
 	statefulSet.Spec.Template.Spec.SecurityContext = security.PodSecurityContext(instance)
 	statefulSet.Spec.Template.Spec.Volumes = standaloneVolumes(instance, group.Name)
+	statefulSet.Spec.Template.Spec.InitContainers = standaloneInitContainers(group.Instance)
 	statefulSet.Spec.Template.Spec.Containers = standaloneContainers(instance, group.Instance, plan)
 	statefulSet.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{standaloneDataVolumeClaim(instance, group)}
 	return statefulSet
@@ -226,6 +225,7 @@ func standaloneVolumes(instance *v1.KDBInstance, group string) []corev1.Volume {
 					{Key: clickHouseNetworkKey, Path: "network.xml"},
 					{Key: clickHouseInterserverKey, Path: "interserver.xml"},
 					{Key: clickHouseStoragePolicyKey, Path: "storage_policy.xml"},
+					{Key: clickHouseLoggingKey, Path: "logging.xml"},
 				},
 			}},
 		},
@@ -261,16 +261,24 @@ func standaloneVolumes(instance *v1.KDBInstance, group string) []corev1.Volume {
 			Name:         clickHouseTmpVolumeName,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
-		{
-			Name:         clickHouseLogVolumeName,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		},
 	}
+}
+
+func standaloneInitContainers(instanceSet shared.InstanceSetSpec) []corev1.Container {
+	return []corev1.Container{{
+		Name:            "database-log-init",
+		Image:           instanceSet.MainContainer.Image,
+		Command:         []string{"/bin/sh", "-ceu", "mkdir -p " + naming.DatabaseLogRoot},
+		Resources:       instanceSet.MainContainer.Resources,
+		SecurityContext: security.InitClickHouseSecurityContext(),
+		VolumeMounts:    []corev1.VolumeMount{{Name: clickHouseDataVolumeName, MountPath: naming.DataMountPath}},
+	}}
 }
 
 func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceSetSpec, plan clickHouseHostPlan) []corev1.Container {
 	sharedMounts := []corev1.VolumeMount{
 		{Name: clickHouseDataVolumeName, MountPath: clickHouseDataMountPath},
+		{Name: clickHouseDataVolumeName, MountPath: naming.DataMountPath},
 		{Name: clickHouseSecretVolumeName, MountPath: "/etc/clickhouse-secret", ReadOnly: true},
 		{Name: clickHouseRuntimeVolumeName, MountPath: "/var/run/kdb"},
 		{Name: clickHouseTmpVolumeName, MountPath: "/tmp"},
@@ -279,7 +287,6 @@ func standaloneContainers(instance *v1.KDBInstance, instanceSet shared.InstanceS
 	databaseMounts = append(databaseMounts,
 		corev1.VolumeMount{Name: clickHouseConfigVolumeName, MountPath: clickHouseConfigMountPath + "/config.d", ReadOnly: true},
 		corev1.VolumeMount{Name: clickHouseUsersVolumeName, MountPath: clickHouseConfigMountPath + "/users.d", ReadOnly: true},
-		corev1.VolumeMount{Name: clickHouseLogVolumeName, MountPath: clickHouseLogMountPath},
 	)
 	database := corev1.Container{
 		Name:            naming.ContainerDatabase,

@@ -18,6 +18,7 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
+	internalmonitoring "github.com/sqc157400661/kdb/internal/monitoring"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"
 	internalsecurity "github.com/sqc157400661/kdb/internal/security"
@@ -79,14 +80,16 @@ func postgreSQLMonitoringObjects(instance *v1.KDBInstance) []*unstructured.Unstr
 		"apiVersion": "monitoring.coreos.com/v1", "kind": "PodMonitor",
 		"metadata": map[string]interface{}{"name": instance.Name + "-postgresql", "namespace": instance.Namespace, "labels": labels},
 		"spec": map[string]interface{}{"namespaceSelector": map[string]interface{}{"matchNames": []interface{}{instance.Namespace}}, "selector": map[string]interface{}{"matchLabels": map[string]interface{}{naming.LabelInstance: instance.Name}}, "podMetricsEndpoints": []interface{}{
-			map[string]interface{}{"port": naming.PortPostgreSQLHA, "path": "/metrics", "scheme": "https", "interval": "15s", "tlsConfig": map[string]interface{}{"ca": map[string]interface{}{"secret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSCAKey}}, "cert": map[string]interface{}{"secret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSClientCertKey}}, "keySecret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSClientPrivateKey}, "insecureSkipVerify": true}, "basicAuth": map[string]interface{}{"username": map[string]interface{}{"name": postgreSQLCredentialSecretRef(instance).Name, "key": naming.PostgreSQLRESTAPIUsernameKey}, "password": map[string]interface{}{"name": postgreSQLCredentialSecretRef(instance).Name, "key": naming.PostgreSQLRESTAPIPasswordKey}}},
-			map[string]interface{}{"port": naming.PortPostgreSQLMetrics, "path": "/metrics", "interval": "30s"},
+			map[string]interface{}{"port": naming.PortPostgreSQLHA, "path": "/metrics", "scheme": "https", "interval": "15s", "relabelings": internalmonitoring.PodTargetRelabelings(instance), "tlsConfig": map[string]interface{}{"ca": map[string]interface{}{"secret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSCAKey}}, "cert": map[string]interface{}{"secret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSClientCertKey}}, "keySecret": map[string]interface{}{"name": naming.PostgreSQLTLSSecret(instance).Name, "key": naming.PostgreSQLTLSClientPrivateKey}, "insecureSkipVerify": true}, "basicAuth": map[string]interface{}{"username": map[string]interface{}{"name": postgreSQLCredentialSecretRef(instance).Name, "key": naming.PostgreSQLRESTAPIUsernameKey}, "password": map[string]interface{}{"name": postgreSQLCredentialSecretRef(instance).Name, "key": naming.PostgreSQLRESTAPIPasswordKey}}},
+			map[string]interface{}{"port": naming.PortPostgreSQLMetrics, "path": "/metrics", "interval": "30s", "relabelings": internalmonitoring.PodTargetRelabelings(instance)},
 		}},
 	}}
 	podMonitor.SetGroupVersionKind(schema.FromAPIVersionAndKind("monitoring.coreos.com/v1", "PodMonitor"))
 	podMatcher := fmt.Sprintf(`namespace="%s",pod=~"%s.*"`, instance.Namespace, instance.Name)
-	rules := []interface{}{
+	rules := internalmonitoring.InstanceResourceRecordingRules(instance)
+	rules = append(rules,
 		pgAlert("KDBPostgreSQLExporterDown", fmt.Sprintf(`pg_up{%s} == 0`, podMatcher), "2m", "critical", "PostgreSQL exporter cannot reach the database"),
+		pgAlert("KDBPostgreSQLSQLProbeDown", fmt.Sprintf(`kdb_pg_probe_sql_up{%s} == 0`, podMatcher), "2m", "critical", "PostgreSQL read-only SQL probe is failing"),
 		pgAlert("KDBPostgreSQLHADown", fmt.Sprintf(`up{%s,container="kdb-ha"} == 0`, podMatcher), "2m", "critical", "kdb-ha metrics endpoint is down"),
 		pgAlert("KDBPostgreSQLPrimaryMissing", fmt.Sprintf(`sum(kdb_ha_postgres_primary{%s}) < 1`, podMatcher), "2m", "critical", "PostgreSQL primary is missing"),
 		pgAlert("KDBPostgreSQLSplitBrainRisk", fmt.Sprintf(`sum(kdb_ha_postgres_primary{%s}) > 1`, podMatcher), "0m", "critical", "More than one PostgreSQL primary is reported"),
@@ -98,7 +101,7 @@ func postgreSQLMonitoringObjects(instance *v1.KDBInstance) []*unstructured.Unstr
 		pgAlert("KDBPostgreSQLArchiveFailure", fmt.Sprintf(`max(pg_stat_archiver_failed_count{%s}) > 0`, podMatcher), "5m", "critical", "PostgreSQL WAL archive is failing"),
 		pgAlert("KDBPostgreSQLBackupFailure", fmt.Sprintf(`max(kdb_pgbackrest_backup_last_success_timestamp_seconds{%s}) < time() - 90000`, podMatcher), "10m", "critical", "PostgreSQL backup is stale or failing"),
 		pgAlert("KDBPostgreSQLDiskPressure", fmt.Sprintf(`max(kubelet_volume_stats_used_bytes{namespace="%s",persistentvolumeclaim=~".*%s.*"} / kubelet_volume_stats_capacity_bytes{namespace="%s",persistentvolumeclaim=~".*%s.*"}) > 0.85`, instance.Namespace, instance.Name, instance.Namespace, instance.Name), "10m", "warning", "PostgreSQL volume usage exceeds 85 percent"),
-	}
+	)
 	rule := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "monitoring.coreos.com/v1", "kind": "PrometheusRule", "metadata": map[string]interface{}{"name": instance.Name + "-postgresql", "namespace": instance.Namespace, "labels": labels}, "spec": map[string]interface{}{"groups": []interface{}{map[string]interface{}{"name": "kdb.postgresql." + instance.Name, "rules": rules}}}}}
 	rule.SetGroupVersionKind(schema.FromAPIVersionAndKind("monitoring.coreos.com/v1", "PrometheusRule"))
 	return []*unstructured.Unstructured{podMonitor, rule}
@@ -125,6 +128,13 @@ const postgreSQLExporterQueries = `kdb_pg_activity:
     - idle_in_transaction_sessions:
         usage: GAUGE
         description: PostgreSQL sessions idle in transaction.
+kdb_pg_probe:
+  query: |
+    SELECT 1::float8 AS sql_up
+  metrics:
+    - sql_up:
+        usage: GAUGE
+        description: Bounded read-only PostgreSQL SQL probe.
 kdb_pg_replication:
   query: |
     SELECT CASE WHEN pg_is_in_recovery()
@@ -717,6 +727,7 @@ func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 					instance.Status.InstanceSet.ReadyReplicas++
 					instance.Status.InstanceSet.PodInfos = append(instance.Status.InstanceSet.PodInfos, shared.PodStatusInfo{
 						PodName:  pod.Name,
+						PodUID:   string(pod.UID),
 						PodPhase: pod.Status.Phase,
 						PodIP:    pod.Status.PodIP,
 						NodeName: pod.Spec.NodeName,
@@ -880,6 +891,11 @@ func buildPatroniConfig(instance *v1.KDBInstance) (map[string]interface{}, error
 			parameters[key] = value
 		}
 	}
+	// Canonical file logging is an operator invariant. User parameters must not
+	// redirect logs away from the data-PVC-backed inventory root.
+	parameters["logging_collector"] = "on"
+	parameters["log_directory"] = naming.DatabaseLogRoot
+	parameters["log_filename"] = "postgresql-%Y-%m-%d_%H%M%S.log"
 
 	hba := []string{
 		"local all postgres peer",
@@ -1029,7 +1045,7 @@ func buildPGBackRestConfig(instance *v1.KDBInstance) string {
 	lines := []string{
 		"[global]",
 		"process-max=2",
-		fmt.Sprintf("repo1-type=%s", pgBackRestRepoType(instance)),
+		fmt.Sprintf("repo1-type=%s", pgBackRestNativeRepoType(instance)),
 		fmt.Sprintf("repo1-path=%s", pgBackRestRepoPath(instance)),
 		"log-level-console=info",
 		"log-path=/var/log/pgbackrest",
@@ -1065,6 +1081,13 @@ func buildPGBackRestConfig(instance *v1.KDBInstance) string {
 		fmt.Sprintf("pg1-socket-path=%s", naming.PostgreSQLSocketDirectory),
 	)
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func pgBackRestNativeRepoType(instance *v1.KDBInstance) string {
+	if pgBackRestRepoType(instance) == "local" {
+		return "posix"
+	}
+	return pgBackRestRepoType(instance)
 }
 
 func pgBackRestS3Endpoint(endpoint string) (string, string) {

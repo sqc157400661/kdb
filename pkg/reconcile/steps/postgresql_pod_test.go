@@ -71,6 +71,9 @@ func TestPostgreSQLPodUsesOnlyKDBHAManagementSidecar(t *testing.T) {
 			t.Fatalf("volume %q is not shared by database and kdb-ha", volume)
 		}
 	}
+	if !hasMountPath(database.VolumeMounts, naming.DataMountPath) || !hasMountPath(kdbHA.VolumeMounts, naming.DataMountPath) {
+		t.Fatalf("database and kdb-ha must share canonical data root %s", naming.DataMountPath)
+	}
 	if hasMount(database.VolumeMounts, "patroni-config") || !hasMount(kdbHA.VolumeMounts, "patroni-config") {
 		t.Fatal("control configuration must be mounted only in the kdb-ha sidecar")
 	}
@@ -82,7 +85,14 @@ func TestPostgreSQLPodUsesOnlyKDBHAManagementSidecar(t *testing.T) {
 			t.Fatalf("control environment %q must be injected only into kdb-ha", name)
 		}
 	}
-	startupCommand := statefulSet.Spec.Template.Spec.InitContainers[0].Command[2]
+	startup := statefulSet.Spec.Template.Spec.InitContainers[0]
+	startupCommand := startup.Command[2]
+	if !strings.Contains(startupCommand, naming.DatabaseLogRoot) {
+		t.Fatalf("startup must create canonical log root: %s", startupCommand)
+	}
+	if !hasMountPath(startup.VolumeMounts, "/backrestrepo") {
+		t.Fatalf("startup must own the mounted local pgBackRest repository before kdb-ha starts: %#v", startup.VolumeMounts)
+	}
 	if !strings.Contains(startupCommand, "/pgdata/pg17/pg_wal") || strings.Contains(startupCommand, "/pgwal/pg17_wal") {
 		t.Fatalf("WAL without a dedicated PVC must remain in PGDATA: %s", startupCommand)
 	}
@@ -112,6 +122,14 @@ func TestPostgreSQLExporterReceivesTLSAndExtendedQueryConfig(t *testing.T) {
 	if exporter == nil {
 		t.Fatal("postgresql exporter container is missing")
 	}
+	if exporter.SecurityContext == nil || exporter.SecurityContext.RunAsUser == nil || *exporter.SecurityContext.RunAsUser != 100 ||
+		exporter.SecurityContext.RunAsGroup == nil || *exporter.SecurityContext.RunAsGroup != 102 ||
+		exporter.SecurityContext.RunAsNonRoot == nil || !*exporter.SecurityContext.RunAsNonRoot {
+		t.Fatalf("postgresql exporter must run as the owner of the 0600 client key: %#v", exporter.SecurityContext)
+	}
+	if len(exporter.Ports) != 1 || len(exporter.Ports[0].Name) > 15 || exporter.Ports[0].Name != naming.PortPostgreSQLMetrics {
+		t.Fatalf("postgresql exporter port must be a valid Kubernetes port name: %#v", exporter.Ports)
+	}
 	for _, volume := range []string{"postgres-tmp", "postgres-tls", "patroni-config"} {
 		if !hasMount(exporter.VolumeMounts, volume) {
 			t.Fatalf("exporter mount %q is missing: %#v", volume, exporter.VolumeMounts)
@@ -119,6 +137,17 @@ func TestPostgreSQLExporterReceivesTLSAndExtendedQueryConfig(t *testing.T) {
 	}
 	if !hasEnv(exporter.Env, "PG_EXPORTER_EXTEND_QUERY_PATH") || !hasEnv(exporter.Env, "DATA_SOURCE_URI") {
 		t.Fatalf("exporter collection environment is incomplete: %#v", exporter.Env)
+	}
+	for _, env := range exporter.Env {
+		if env.Name != "DATA_SOURCE_URI" {
+			continue
+		}
+		if !strings.Contains(env.Value, "sslcert=/etc/postgresql/tls/client.crt") || !strings.Contains(env.Value, "sslkey=/etc/postgresql/tls/client.key") {
+			t.Fatalf("exporter must use the PostgreSQL client certificate: %q", env.Value)
+		}
+		if strings.Contains(env.Value, "sslcert=/etc/postgresql/tls/tls.crt") || strings.Contains(env.Value, "sslkey=/etc/postgresql/tls/tls.key") {
+			t.Fatalf("exporter must not use the server certificate: %q", env.Value)
+		}
 	}
 }
 
@@ -136,11 +165,83 @@ func TestPostgreSQLRestoreRunsBeforeStartupAndElection(t *testing.T) {
 	}
 	restore := statefulSet.Spec.Template.Spec.InitContainers[0]
 	joined := strings.Join(restore.Args, " ")
-	if !strings.Contains(joined, "--set=20260715F") || !strings.Contains(joined, "--type=time") || !strings.Contains(joined, "restore-mode") {
+	if !strings.Contains(joined, "--set=20260715F") || !strings.Contains(joined, "--type=time") || !strings.Contains(joined, "restore-mode") ||
+		!strings.Contains(joined, "--recovery-option=restore_command=kdb-pg-tool --socket=/var/run/kdb-ha/postgres-tools.sock pgbackrest") {
 		t.Fatalf("restore args = %q", joined)
 	}
 	if !hasEnvFromSecret(restore.Env, "PGBACKREST_REPO1_S3_KEY", "repo") {
 		t.Fatalf("S3 credential env is missing: %#v", restore.Env)
+	}
+}
+
+func TestPostgreSQLLocalRestoreReadsRepositoryFromBackupExecutorPVCOnly(t *testing.T) {
+	replicas, port := int32(1), int32(5432)
+	instance := &v1.KDBInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "restored-local", Namespace: "kdb",
+			Annotations: map[string]string{"kdb.com/restore-local-repository-pvc": "source2-kdb-data"},
+		},
+		Spec: v1.KDBInstanceSpec{
+			Engine: naming.PostgresEngine, EngineVersion: "17", Port: &port,
+			InstanceSet: shared.InstanceSetSpec{
+				Replicas: &replicas, MainContainer: shared.ContainerSpec{Image: "postgresql17:test"}, SidecarContainer: shared.ContainerSpec{Image: "postgresql-sidecar:test"},
+			},
+			PostgreSQL: &v1.PostgreSQLSpec{
+				Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "local"}},
+				Restore: &v1.PostgreSQLRestoreBootstrapSpec{OperationID: "restore-local", BackupID: "20260715F"},
+			},
+		},
+	}
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: instance.Name, Namespace: instance.Namespace}}
+	postgresPodIntent(newPostgreSQLPodTestContext(t, instance), statefulSet)
+
+	var repositoryVolume *corev1.Volume
+	for i := range statefulSet.Spec.Template.Spec.Volumes {
+		if statefulSet.Spec.Template.Spec.Volumes[i].Name == "postgres-restore-repository" {
+			repositoryVolume = &statefulSet.Spec.Template.Spec.Volumes[i]
+			break
+		}
+	}
+	if repositoryVolume == nil || repositoryVolume.PersistentVolumeClaim == nil ||
+		repositoryVolume.PersistentVolumeClaim.ClaimName != "source2-kdb-data" || !repositoryVolume.PersistentVolumeClaim.ReadOnly {
+		t.Fatalf("source repository volume is not read-only: %#v", repositoryVolume)
+	}
+	restore := statefulSet.Spec.Template.Spec.InitContainers[0]
+	var sourceRepository, targetRepository *corev1.VolumeMount
+	for i := range restore.VolumeMounts {
+		switch restore.VolumeMounts[i].MountPath {
+		case "/var/lib/kdb/restore-repository-source":
+			sourceRepository = &restore.VolumeMounts[i]
+		case "/backrestrepo":
+			targetRepository = &restore.VolumeMounts[i]
+		}
+	}
+	if sourceRepository == nil || sourceRepository.Name != "postgres-restore-repository" || !sourceRepository.ReadOnly || sourceRepository.SubPath != "pgbackrestrepo" {
+		t.Fatalf("source restore repository mount=%#v", sourceRepository)
+	}
+	if targetRepository == nil || targetRepository.Name != "postgres-data" || targetRepository.ReadOnly || targetRepository.SubPath != "pgbackrestrepo" {
+		t.Fatalf("target restore repository mount=%#v", targetRepository)
+	}
+	if !strings.Contains(restore.Args[0], `cp -R "$KDB_LOCAL_RESTORE_REPOSITORY_SOURCE/." "$KDB_LOCAL_RESTORE_REPOSITORY_TARGET/"`) {
+		t.Fatalf("restore init does not copy the local repository: %q", restore.Args[0])
+	}
+	if !hasEnv(restore.Env, "KDB_LOCAL_RESTORE_REPOSITORY_SOURCE") || !hasEnv(restore.Env, "KDB_LOCAL_RESTORE_REPOSITORY_TARGET") {
+		t.Fatalf("local restore repository env is incomplete: %#v", restore.Env)
+	}
+	var kdbHA *corev1.Container
+	for i := range statefulSet.Spec.Template.Spec.Containers {
+		if statefulSet.Spec.Template.Spec.Containers[i].Name == naming.ContainerPostgreSQLHA {
+			kdbHA = &statefulSet.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if kdbHA == nil {
+		t.Fatal("kdb-ha container is missing")
+	}
+	for _, mount := range kdbHA.VolumeMounts {
+		if mount.MountPath == "/backrestrepo" && (mount.Name != "postgres-data" || mount.ReadOnly) {
+			t.Fatalf("runtime repository must remain on the target data PVC: %#v", mount)
+		}
 	}
 }
 

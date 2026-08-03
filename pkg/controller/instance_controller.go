@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -183,9 +184,59 @@ func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 		Owns(&batchv1.Job{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
+		// A physical restore using AdoptSource must follow the source
+		// credential Secret.  The source owns that Secret, so Owns(Secret)
+		// alone would only enqueue the source instance; this explicit mapping
+		// also enqueues target instances that reference the source.
+		Watches(&source.Kind{Type: &corev1.Secret{}}, handler.EnqueueRequestsFromMapFunc(mysqlRestoreCredentialRequests(mgr.GetClient()))).
 		Watches(&source.Kind{Type: &coordinationv1.Lease{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
 		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
 		Complete(r)
+}
+
+// mysqlRestoreCredentialRequests maps a source MySQL credential Secret update
+// to every namespace-local KDBInstance that explicitly adopts that source's
+// credential during a physical restore.  The map is deliberately closed over
+// the cache client instead of using an unbounded enqueue-all handler: source
+// credential rotation should not cause unrelated databases to reconcile.
+func mysqlRestoreCredentialRequests(cache client.Client) handler.MapFunc {
+	return func(object client.Object) []reconcile.Request {
+		if cache == nil || object == nil {
+			return nil
+		}
+		const suffix = "-mysql-credential"
+		secretName := object.GetName()
+		if !strings.HasSuffix(secretName, suffix) {
+			return nil
+		}
+		sourceName := strings.TrimSuffix(secretName, suffix)
+		if sourceName == "" {
+			return nil
+		}
+		instances := &v1.KDBInstanceList{}
+		if err := cache.List(context.Background(), instances, client.InNamespace(object.GetNamespace())); err != nil {
+			// Event handlers cannot surface an error to the queue.  The next
+			// source Secret update or normal periodic reconciliation will retry;
+			// never enqueue unrelated instances on a cache failure.
+			return nil
+		}
+		requests := make([]reconcile.Request, 0)
+		for index := range instances.Items {
+			instance := &instances.Items[index]
+			if instance.Spec.MySQL == nil || instance.Spec.MySQL.Restore == nil {
+				continue
+			}
+			restore := instance.Spec.MySQL.Restore
+			if restore.CredentialMode != v1.MySQLRestoreCredentialModeAdoptSource ||
+				restore.SourceInstanceRef == nil ||
+				strings.TrimSpace(restore.SourceInstanceRef.Name) != sourceName ||
+				instance.Name == sourceName {
+				continue
+			}
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(instance)})
+		}
+		return requests
+	}
 }
 
 func postgreSQLDCSRequests(object client.Object) []reconcile.Request {

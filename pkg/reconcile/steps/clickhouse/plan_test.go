@@ -43,10 +43,18 @@ func TestRenderClickHouseRemoteServersIncludesGroupsAndAllReplicas(t *testing.T)
 		"kdb_all_replicas",
 		"analytics-ch-ingest-s0-r0-0.analytics-ch-ingest-headless.kdb.svc",
 		"analytics-ch-serving-s1-r1-0.analytics-ch-serving-headless.kdb.svc",
+		"<user>kdb_admin</user>",
+		"<password from_env=\"CLICKHOUSE_ADMIN_PASSWORD\"/>",
 	} {
 		if !strings.Contains(config, token) {
 			t.Fatalf("remote_servers missing %q:\n%s", token, config)
 		}
+	}
+	if strings.Contains(config, "<password>kdb") {
+		t.Fatalf("remote_servers must never render a plaintext password:\n%s", config)
+	}
+	if replicas, users := strings.Count(config, "<replica>"), strings.Count(config, "<user>kdb_admin</user>"); replicas != users {
+		t.Fatalf("every remote replica must carry explicit credentials: replicas=%d users=%d\n%s", replicas, users, config)
 	}
 }
 

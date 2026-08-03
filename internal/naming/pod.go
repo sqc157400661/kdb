@@ -33,7 +33,11 @@ const (
 
 	PortMySQLMetrics = "mysql-metrics"
 
-	PortPostgreSQLMetrics = "postgresql-metrics"
+	// PortPostgreSQLMetrics is intentionally <= 15 characters: Kubernetes
+	// ContainerPort names are DNS_LABELs with a 15-character limit. The old
+	// descriptive value "postgresql-metrics" could never be persisted in a
+	// StatefulSet and is retained only in migration documentation/search hints.
+	PortPostgreSQLMetrics = "pg-metrics"
 
 	PortPostgreSQLHA = "kdb-ha"
 )

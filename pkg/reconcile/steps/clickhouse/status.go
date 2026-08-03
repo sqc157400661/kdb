@@ -72,14 +72,14 @@ func projectStandaloneStatus(rc *context.InstanceContext) error {
 		}
 		allReplicationHealthy = allReplicationHealthy && replicationHealthy
 		groupStatuses = append(groupStatuses, v1.ClickHouseComputeGroupStatus{
-			Name:             group.Name,
-			Role:             group.Role,
-			Phase:            groupPhase,
-			ReplicasPerShard: replicasPerShard(group),
-			ReadyReplicas:    readyReplicas,
-				UpdatedReplicas:  updatedReplicas,
-				MaxReplicationDelaySeconds: maxDelay,
-				ReadonlyReplicas: readonlyReplicas,
+			Name:                       group.Name,
+			Role:                       group.Role,
+			Phase:                      groupPhase,
+			ReplicasPerShard:           replicasPerShard(group),
+			ReadyReplicas:              readyReplicas,
+			UpdatedReplicas:            updatedReplicas,
+			MaxReplicationDelaySeconds: maxDelay,
+			ReadonlyReplicas:           readonlyReplicas,
 		})
 	}
 	instance.Status.InstanceSet = shared.InstanceSetStatus{
@@ -108,7 +108,7 @@ func projectStandaloneStatus(rc *context.InstanceContext) error {
 	instance.Status.ClickHouse = &v1.ClickHouseStatus{
 		DataShards:    instance.Spec.ClickHouse.DataShards,
 		ComputeGroups: groupStatuses,
-		Version: &v1.ClickHouseVersionStatus{Min: minVersion, Max: maxVersion},
+		Version:       &v1.ClickHouseVersionStatus{Min: minVersion, Max: maxVersion},
 	}
 	if previousClickHouse != nil {
 		instance.Status.ClickHouse.Keeper = previousClickHouse.Keeper
@@ -132,10 +132,13 @@ func projectStandaloneStatus(rc *context.InstanceContext) error {
 	backupStatus := metav1.ConditionFalse
 	backupReason := "BackupDisabled"
 	backupMessage := "ClickHouse backup runner is not configured"
-	if clickHouseBackupRunnerEnabled(instance) && instance.Spec.ClickHouse.Backup != nil && instance.Spec.ClickHouse.Backup.ObjectStorageRef != nil {
+	if clickHouseBackupRunnerEnabled(instance) {
 		backupStatus = metav1.ConditionTrue
 		backupReason = "BackupConfigured"
-		backupMessage = "ClickHouse backup runner and object storage reference are configured"
+		backupMessage = "ClickHouse backup runner is configured"
+		if instance.Spec.ClickHouse.Backup.ObjectStorageRef != nil {
+			backupMessage = "ClickHouse backup runner and object storage reference are configured"
+		}
 	}
 	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type: "BackupConfigured", Status: backupStatus, Reason: backupReason,
@@ -196,7 +199,7 @@ func computeGroupKubeStatus(rc *context.InstanceContext, group string) (int32, i
 		pod := &pods.Items[i]
 		routable := false
 		if util.IsPodReady(pod) {
-			status, statusErr := queryClickHouseSidecarStatus(rc.Context(), pod.Status.PodIP)
+			status, statusErr := queryClickHouseSidecarStatus(rc, pod.Status.PodIP)
 			if statusErr == nil && status.Healthy {
 				routable = replicaRoutable(status, maxRoutableDelay)
 				if status.Readonly {
@@ -216,6 +219,7 @@ func computeGroupKubeStatus(rc *context.InstanceContext, group string) (int32, i
 			readyReplicas++
 			podInfos = append(podInfos, shared.PodStatusInfo{
 				PodName:  pod.Name,
+				PodUID:   string(pod.UID),
 				PodPhase: pod.Status.Phase,
 				PodIP:    pod.Status.PodIP,
 				NodeName: pod.Spec.NodeName,

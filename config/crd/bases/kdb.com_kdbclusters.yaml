@@ -610,6 +610,20 @@ spec:
                         - MultiPrimary
                         type: string
                     type: object
+                  restore:
+                    properties:
+                      credentialMode:
+                        enum:
+                        - Target
+                        - AdoptSource
+                        type: string
+                      sourceInstanceRef:
+                        properties:
+                          name:
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                 type: object
               postgresql:
                 properties:

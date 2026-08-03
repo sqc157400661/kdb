@@ -104,6 +104,33 @@ spec:
                 type: string
               prometheus:
                 properties:
+                  externalLabels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  remoteWrite:
+                    items:
+                      properties:
+                        authorizationSecretRef:
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            optional:
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        url:
+                          minLength: 1
+                          type: string
+                      required:
+                      - url
+                      type: object
+                    maxItems: 4
+                    type: array
                   replicas:
                     default: 1
                     format: int32

@@ -61,12 +61,12 @@ func TestMOD07SecurityAndObservabilityContract(t *testing.T) {
 	}
 	raw := objects[1].Object["spec"]
 	text := strings.ToLower(strings.TrimSpace(toJSON(raw)))
-	for _, alert := range []string{"exporterdown", "hadown", "primarymissing", "splitbrainrisk", "replicationlaghigh", "connectionshigh", "longtransaction", "deadlocks", "freezeagehigh", "archivefailure", "backupfailure", "diskpressure"} {
+	for _, alert := range []string{"exporterdown", "sqlprobedown", "hadown", "primarymissing", "splitbrainrisk", "replicationlaghigh", "connectionshigh", "longtransaction", "deadlocks", "freezeagehigh", "archivefailure", "backupfailure", "diskpressure"} {
 		if !strings.Contains(text, alert) {
 			t.Fatalf("default alert %s missing: %s", alert, text)
 		}
 	}
-	for _, metric := range []string{"kdb_pg_activity", "kdb_pg_replication", "kdb_pg_wal", "kdb_pg_vacuum", "kdb_pg_database", "kdb_pg_stat_statements"} {
+	for _, metric := range []string{"kdb_pg_activity", "kdb_pg_probe", "kdb_pg_replication", "kdb_pg_wal", "kdb_pg_vacuum", "kdb_pg_database", "kdb_pg_stat_statements"} {
 		if !strings.Contains(postgreSQLExporterQueries, metric) {
 			t.Fatalf("exporter query group %s missing", metric)
 		}
@@ -75,8 +75,8 @@ func TestMOD07SecurityAndObservabilityContract(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(postgreSQLExporterQueries), &queries); err != nil {
 		t.Fatalf("exporter queries are not valid YAML: %v", err)
 	}
-	if len(queries) < 7 {
-		t.Fatalf("exporter query groups=%d, want at least 7", len(queries))
+	if len(queries) < 8 {
+		t.Fatalf("exporter query groups=%d, want at least 8", len(queries))
 	}
 }
 
@@ -168,6 +168,10 @@ func TestBuildPatroniConfigDefaults(t *testing.T) {
 	parameters := postgresql["parameters"].(map[string]string)
 	if parameters["wal_log_hints"] != "on" {
 		t.Fatalf("safe rejoin must enable wal_log_hints: %#v", parameters)
+	}
+	if parameters["logging_collector"] != "on" || parameters["log_directory"] != naming.DatabaseLogRoot ||
+		parameters["log_filename"] != "postgresql-%Y-%m-%d_%H%M%S.log" {
+		t.Fatalf("canonical PostgreSQL file logging missing: %#v", parameters)
 	}
 	restapi := conf["restapi"].(map[string]interface{})
 	if _, ok := restapi["connect_address"]; ok {
@@ -351,6 +355,30 @@ func TestBuildPGBackRestS3ConfigHasContinuousArchivePolicy(t *testing.T) {
 	archiveCommand := patroni["postgresql"].(map[string]interface{})["parameters"].(map[string]string)["archive_command"]
 	if strings.Contains(archiveCommand, "stanza-create") || !strings.Contains(archiveCommand, "pgbackrest-stanza.ready") || !strings.Contains(archiveCommand, "kdb-pg-tool") || !strings.Contains(archiveCommand, "archive-push %p") {
 		t.Fatalf("archive command does not order stanza creation before WAL push: %s", archiveCommand)
+	}
+}
+
+func TestBuildPGBackRestLocalConfigUsesNativePosixType(t *testing.T) {
+	instance := &v1.KDBInstance{
+		Spec: v1.KDBInstanceSpec{
+			EngineVersion: "17",
+			PostgreSQL: &v1.PostgreSQLSpec{
+				Backups: &v1.PostgreSQLBackupSpec{
+					PGBackRest: &v1.PostgreSQLPGBackRestSpec{
+						Enabled:  true,
+						RepoType: "local",
+						RepoPath: "/kdb/orders",
+					},
+				},
+			},
+		},
+	}
+	config := buildPGBackRestConfig(instance)
+	if !strings.Contains(config, "repo1-type=posix") {
+		t.Fatalf("local repository must map to pgBackRest posix:\n%s", config)
+	}
+	if strings.Contains(config, "repo1-type=local") {
+		t.Fatalf("platform repository type leaked into pgBackRest config:\n%s", config)
 	}
 }
 

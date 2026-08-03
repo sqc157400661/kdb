@@ -29,21 +29,28 @@ const (
 )
 
 const (
-	PostgreSQLSuperuserUsernameKey    = "superuser-username"
-	PostgreSQLSuperuserPasswordKey    = "superuser-password"
-	PostgreSQLReplicationUsernameKey  = "replication-username"
-	PostgreSQLReplicationPasswordKey  = "replication-password"
-	PostgreSQLBackupUsernameKey       = "backup-username"
-	PostgreSQLBackupPasswordKey       = "backup-password"
-	PostgreSQLMonitoringUsernameKey   = "monitoring-username"
-	PostgreSQLMonitoringPasswordKey   = "monitoring-password"
-	PostgreSQLRESTAPIUsernameKey      = "restapi-username"
-	PostgreSQLRESTAPIPasswordKey      = "restapi-password"
-	PostgreSQLTLSCAKey                = "ca.crt"
-	PostgreSQLTLSCertKey              = "tls.crt"
-	PostgreSQLTLSPrivateKey           = "tls.key"
-	PostgreSQLTLSClientCertKey        = "client.crt"
-	PostgreSQLTLSClientPrivateKey     = "client.key"
+	PostgreSQLSuperuserUsernameKey   = "superuser-username"
+	PostgreSQLSuperuserPasswordKey   = "superuser-password"
+	PostgreSQLReplicationUsernameKey = "replication-username"
+	PostgreSQLReplicationPasswordKey = "replication-password"
+	PostgreSQLBackupUsernameKey      = "backup-username"
+	PostgreSQLBackupPasswordKey      = "backup-password"
+	PostgreSQLMonitoringUsernameKey  = "monitoring-username"
+	PostgreSQLMonitoringPasswordKey  = "monitoring-password"
+	PostgreSQLRESTAPIUsernameKey     = "restapi-username"
+	PostgreSQLRESTAPIPasswordKey     = "restapi-password"
+	PostgreSQLTLSCAKey               = "ca.crt"
+	PostgreSQLTLSCertKey             = "tls.crt"
+	PostgreSQLTLSPrivateKey          = "tls.key"
+	PostgreSQLTLSClientCertKey       = "client.crt"
+	PostgreSQLTLSClientPrivateKey    = "client.key"
+	// ClickHouse sidecar uses the same runtime mTLS bundle shape as the
+	// PostgreSQL control plane, but keeps its own namespaced credential Secret.
+	ClickHouseTLSCAKey                = "ca.crt"
+	ClickHouseTLSCertKey              = "tls.crt"
+	ClickHouseTLSPrivateKey           = "tls.key"
+	ClickHouseTLSClientCertKey        = "client.crt"
+	ClickHouseTLSClientPrivateKey     = "client.key"
 	PostgreSQLPGBackRestS3Key         = "accessKey"
 	PostgreSQLPGBackRestS3SecretKey   = "secretKey"
 	PostgreSQLPGBackRestS3TokenKey    = "sessionToken"
@@ -79,6 +86,8 @@ const (
 const (
 	// DataMountPath is where to mount the main data volume.
 	DataMountPath = "/kdbdata"
+	// DatabaseLogRoot is the canonical directory for database file logs.
+	DatabaseLogRoot = DataMountPath + "/log"
 
 	// LogMountPath is where to mount the optional WAL volume.
 	LogMountPath = "/kdblog"

@@ -56,20 +56,20 @@ func TestIsLogSystemDeploymentReadyRequiresCurrentRollout(t *testing.T) {
 	}
 }
 
-func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *testing.T) {
-	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push", []string{"/custom/mysql-logs", "relative", "/kdbdata/log/"})
+func TestRenderLogSystemFluentBitConfigCollectsContainerAndDatabaseFileLogs(t *testing.T) {
+	conf := renderLogSystemFluentBitConfig("http://loki.kdb.svc:3100/loki/api/v1/push", []string{"/custom/database-logs", "relative", "/kdbdata/log/"})
 	for _, want := range []string{
 		"Host        loki.kdb.svc",
 		"Port        3100",
 		"URI         /loki/api/v1/push",
 		"/var/log/containers/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/kdbdata/log/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/kdb/logs/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/log/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/logs/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/custom/mysql-logs/*.log",
-		"/var/lib/kubelet/pods/*/volumes/*/*/mount/custom/mysql-logs/*.log",
-		"Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$file_path",
+		"/var/lib/kubelet/pods/*/volumes/*/*/mount/log/*.log",
+		"/var/local-path-provisioner/*/log/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/custom/database-logs/*.log",
+		"/var/lib/kubelet/pods/*/volumes/*/*/mount/custom/database-logs/*.log",
+		"Parser            database_file",
+		"Tag               kdb.database.file",
+		"Label_Keys  $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['host'],$pod_uid,$pod_name,$pod_namespace,$file_path",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Fatalf("fluent-bit config missing %q:\n%s", want, conf)
@@ -78,9 +78,36 @@ func TestRenderLogSystemFluentBitConfigCollectsContainerAndMySQLFileLogs(t *test
 	if strings.Contains(conf, "relative") {
 		t.Fatalf("fluent-bit config should ignore relative extra log dirs:\n%s", conf)
 	}
+	if strings.Contains(conf, "/kdbdata/log/*.log") {
+		t.Fatalf("host collector must not treat the container mount point as a PVC subdirectory:\n%s", conf)
+	}
+	for _, legacy := range []string{"/kdb/logs/*.log", "/volumes/*/*/log/*.log", "/volumes/*/*/logs/*.log"} {
+		if strings.Contains(conf, legacy) {
+			t.Fatalf("fluent-bit config should not retain legacy default %q:\n%s", legacy, conf)
+		}
+	}
+	if strings.Contains(conf, "mysql_file") || strings.Contains(conf, "kdb.mysql.file") {
+		t.Fatalf("database file input must not retain MySQL-only parser or tag:\n%s", conf)
+	}
 	parsers := renderLogSystemFluentBitParsers()
-	if !strings.Contains(parsers, "Name        cri") || !strings.Contains(parsers, "Name        mysql_file") {
-		t.Fatalf("parsers missing cri or mysql_file parser:\n%s", parsers)
+	if !strings.Contains(parsers, "Name        cri") || !strings.Contains(parsers, "Name        database_file") {
+		t.Fatalf("parsers missing cri or database_file parser:\n%s", parsers)
+	}
+}
+
+func TestRenderLogSystemPodScopeLuaMapsLocalPathPVCToCurrentPod(t *testing.T) {
+	script := renderLogSystemPodScopeLua(map[string]logPodScope{
+		"mysql-a-kdb-data": {PodUID: "pod-uid-a", PodName: "mysql-a-0", Namespace: "kdb"},
+	})
+	for _, want := range []string{
+		`["mysql-a-kdb-data"] = { pod_uid = "pod-uid-a", pod_name = "mysql-a-0", pod_namespace = "kdb" }`,
+		`/pods/([^/]+)/volumes/`,
+		`/var/local%-path%-provisioner/`,
+		`set_if_empty(record, "pod_uid", scope.pod_uid)`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("pod scope Lua missing %q:\n%s", want, script)
+		}
 	}
 }
 

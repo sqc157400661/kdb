@@ -86,6 +86,8 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 					{Key: "ca.crt", Path: naming.MySQLCredentialDir + "/ca.crt"},
 					{Key: "tls.crt", Path: naming.MySQLCredentialDir + "/tls.crt"},
 					{Key: "tls.key", Path: naming.MySQLCredentialDir + "/tls.key", Mode: func() *int32 { value := int32(0o400); return &value }()},
+					{Key: "client.crt", Path: naming.MySQLCredentialDir + "/client.crt"},
+					{Key: "client.key", Path: naming.MySQLCredentialDir + "/client.key", Mode: func() *int32 { value := int32(0o400); return &value }()},
 				},
 			},
 		})
@@ -249,6 +251,9 @@ func backupCredentialSecretProjection(instance *v1.KDBInstance) (corev1.VolumePr
 func instanceContainer(rc *context.InstanceContext, statefulSetName string, mounts []corev1.VolumeMount) (initContainers []corev1.Container, containers []corev1.Container) {
 	instance := rc.GetInstance()
 	instanceSet := naming.InstanceSetSpec(instance)
+	if naming.IsMySQLEngine(instance) {
+		initContainers = append(initContainers, mysqlDatabaseLogInitContainer(instanceSet))
+	}
 	sidecarEnv := append(RequestEnvironment(instance, statefulSetName), instanceSet.SidecarContainer.Env...)
 	if naming.IsMySQLEngine(instance) {
 		sidecarEnv = append(sidecarEnv, corev1.EnvVar{Name: "KDB_SIDECAR_TLS_REQUIRED", Value: "true"})
@@ -302,6 +307,17 @@ func instanceContainer(rc *context.InstanceContext, statefulSetName string, moun
 	return
 }
 
+func mysqlDatabaseLogInitContainer(instanceSet shared.InstanceSetSpec) corev1.Container {
+	return corev1.Container{
+		Name:            "database-log-init",
+		Image:           instanceSet.MainContainer.Image,
+		Command:         []string{"/bin/sh", "-ceu", "mkdir -p " + naming.DatabaseLogRoot},
+		Resources:       instanceSet.MainContainer.Resources,
+		SecurityContext: security.InitLegacySecurityContext(),
+		VolumeMounts:    []corev1.VolumeMount{naming.DataVolumeMount()},
+	}
+}
+
 func postgreSQLDRSpec(instance *v1.KDBInstance) *v1.PostgreSQLDRSpec {
 	if instance == nil || instance.Spec.PostgreSQL == nil || instance.Spec.PostgreSQL.DR == nil || !instance.Spec.PostgreSQL.DR.Enabled {
 		return nil
@@ -326,6 +342,7 @@ func mysqlExporterContainer(instance *v1.KDBInstance, instanceSet shared.Instanc
 	if len(exporter.Env) > 0 {
 		monitor.Env = append(monitor.Env, exporter.Env...)
 	}
+	monitor.Env = normalizeMySQLExporterEnv(instance, monitor.Env)
 	if !isEmptyResourceRequirements(exporter.Resources) {
 		monitor.Resources = exporter.Resources
 	}
@@ -344,6 +361,43 @@ func mysqlExporterContainer(instance *v1.KDBInstance, instanceSet shared.Instanc
 		SecurityContext: security.InitLegacySecurityContext(),
 		VolumeMounts:    mysqlExporterVolumeMounts(mounts),
 	}
+}
+
+func normalizeMySQLExporterEnv(instance *v1.KDBInstance, env []corev1.EnvVar) []corev1.EnvVar {
+	env = ensureMySQLExporterLiteralEnv(env, "MYSQL_EXPORTER_USER", "_monitor_user")
+	env = ensureMySQLExporterLiteralEnv(env, "MYSQL_EXPORTER_HOST", "127.0.0.1")
+	password := corev1.EnvVar{
+		Name: "MYSQL_EXPORTER_PASSWORD",
+		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{
+				Name: naming.MySQLCredentialSecret(instance).Name,
+			},
+			Key: naming.MySQLRootPasswordSecretKey,
+		}},
+	}
+	for index := len(env) - 1; index >= 0; index-- {
+		if env[index].Name != password.Name {
+			continue
+		}
+		if env[index].Value == "" && env[index].ValueFrom == nil {
+			env[index] = password
+		}
+		return env
+	}
+	return append(env, password)
+}
+
+func ensureMySQLExporterLiteralEnv(env []corev1.EnvVar, name, value string) []corev1.EnvVar {
+	for index := len(env) - 1; index >= 0; index-- {
+		if env[index].Name != name {
+			continue
+		}
+		if env[index].Value == "" && env[index].ValueFrom == nil {
+			env[index].Value = value
+		}
+		return env
+	}
+	return append(env, corev1.EnvVar{Name: name, Value: value})
 }
 
 func mysqlExporterVolumeMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {

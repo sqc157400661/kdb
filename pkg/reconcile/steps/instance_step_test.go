@@ -1,6 +1,7 @@
 package steps
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -54,6 +55,61 @@ func TestMySQLPodMonitorScrapesExporterAndSidecar(t *testing.T) {
 	}
 	if !ports[naming.PortMySQLMetrics] || !ports[naming.PortSidecarMetrics] {
 		t.Fatalf("expected exporter and sidecar metrics ports, got %#v", ports)
+	}
+	for _, raw := range endpoints {
+		item, ok := raw.(map[string]interface{})
+		if !ok || item["port"] != naming.PortSidecarMetrics {
+			continue
+		}
+		if item["scheme"] != "https" {
+			t.Fatalf("expected sidecar metrics endpoint to use https, got %#v", item["scheme"])
+		}
+		tlsConfig, ok, err := unstructured.NestedMap(item, "tlsConfig")
+		if err != nil || !ok {
+			t.Fatalf("expected sidecar metrics mTLS config, ok=%v err=%v", ok, err)
+		}
+		cert, _, _ := unstructured.NestedMap(tlsConfig, "cert", "secret")
+		keySecret, _, _ := unstructured.NestedMap(tlsConfig, "keySecret")
+		if cert["name"] == nil || keySecret["name"] == nil {
+			t.Fatalf("expected client certificate and key references, got %#v", tlsConfig)
+		}
+		return
+	}
+	t.Fatal("sidecar metrics endpoint was not found")
+}
+
+func TestMySQLPrometheusRuleAlertsOnSQLReadAndWriteProbes(t *testing.T) {
+	instance := &v1.KDBInstance{}
+	instance.Name = "demo-mysql"
+	instance.Namespace = "kdb"
+	instance.Spec.Engine = naming.MySQLEngine
+	rule := mysqlPrometheusRule(instance)
+	groups, ok, err := unstructured.NestedSlice(rule.Object, "spec", "groups")
+	if err != nil || !ok || len(groups) != 1 {
+		t.Fatalf("expected one PrometheusRule group, ok=%v err=%v groups=%#v", ok, err, groups)
+	}
+	group, ok := groups[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected PrometheusRule group: %#v", groups[0])
+	}
+	rules, ok, err := unstructured.NestedSlice(group, "rules")
+	if err != nil || !ok {
+		t.Fatalf("expected PrometheusRule rules, ok=%v err=%v", ok, err)
+	}
+	alerts := map[string]string{}
+	for _, raw := range rules {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := item["alert"].(string)
+		expr, _ := item["expr"].(string)
+		alerts[name] = expr
+	}
+	for _, name := range []string{"KDBMySQLSQLProbeFailed", "KDBMySQLSQLWriteProbeFailed"} {
+		if alerts[name] == "" || !strings.Contains(alerts[name], "== 0") {
+			t.Fatalf("missing SQL probe alert %s: %#v", name, alerts)
+		}
 	}
 }
 

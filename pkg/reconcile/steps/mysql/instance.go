@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	stdcontext "context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -28,6 +29,8 @@ import (
 type InstanceStepManager struct {
 	steps.InstanceStepManager
 }
+
+const mysqlMGRRecoveryPasswordMaxLength = 32
 
 // SetInstanceConfig set mysql and sidecar config
 // TODO: processing parameters that require a restart to take effect
@@ -88,11 +91,11 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				existingRootPassword = existingCredential.Data[naming.MySQLRootPasswordSecretKey]
 				existingReplicationPassword = existingCredential.Data[naming.MySQLReplicationPasswordSecretKey]
 			}
-			rootPassword, passwordErr := resolveMySQLCredentialValue(globalConfig.DB.RootPassword, existingRootPassword)
+			rootPassword, passwordErr := resolveMySQLRootPassword(rc.Context(), rc.Client(), instance, globalConfig.DB.RootPassword, existingRootPassword)
 			if passwordErr != nil {
 				return flow.Error(passwordErr, "resolve MySQL root credential err")
 			}
-			replicationPassword, passwordErr := resolveMySQLCredentialValue(globalConfig.DB.ReplPassword, existingReplicationPassword)
+			replicationPassword, passwordErr := resolveMySQLReplicationPassword(instance, globalConfig.DB.ReplPassword, existingReplicationPassword)
 			if passwordErr != nil {
 				return flow.Error(passwordErr, "resolve MySQL replication credential err")
 			}
@@ -168,6 +171,9 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			if err != nil {
 				return flow.Error(err, "apply err")
 			}
+			if err := reconcileMySQLAllowlistNetworkPolicy(rc, instance); err != nil {
+				return flow.Error(err, "reconcile mysql allowlist NetworkPolicy err")
+			}
 			rc.SetInstanceConfigMap(instanceConfigMap)
 			return flow.Pass()
 		})
@@ -187,6 +193,72 @@ func resolveMySQLCredentialValue(configured string, existing []byte) ([]byte, er
 	encoded := make([]byte, hex.EncodedLen(len(raw)))
 	hex.Encode(encoded, raw)
 	return encoded, nil
+}
+
+func resolveMySQLReplicationPassword(instance *v1.KDBInstance, configured string, existing []byte) ([]byte, error) {
+	password, err := resolveMySQLCredentialValue(configured, existing)
+	if err != nil {
+		return nil, err
+	}
+	if instance == nil || instance.Spec.DeployArch != "MGR" || len(password) <= mysqlMGRRecoveryPasswordMaxLength {
+		return password, nil
+	}
+	if strings.TrimSpace(configured) != "" {
+		return nil, fmt.Errorf("configured MGR replication password exceeds MySQL group recovery maximum length of %d characters", mysqlMGRRecoveryPasswordMaxLength)
+	}
+	// Older Operator versions generated a 48-character replication secret.
+	// MySQL 8.0 rejects that value specifically for the
+	// group_replication_recovery channel. Preserve the existing random prefix
+	// so the migration is deterministic, while the sidecar converges the
+	// managed replication account to the same shortened value.
+	return append([]byte(nil), password[:mysqlMGRRecoveryPasswordMaxLength]...), nil
+}
+
+// resolveMySQLRootPassword resolves the credential that the restored target
+// must use while XtraBackup's source grant tables are present.  The default
+// path is unchanged; AdoptSource is an explicit opt-in that reads only the
+// source instance's operator-managed Secret and never carries credential
+// material in a KDBInstance spec or task payload.
+func resolveMySQLRootPassword(ctx stdcontext.Context, kubeClient client.Client, instance *v1.KDBInstance, configured string, existing []byte) ([]byte, error) {
+	if instance == nil || instance.Spec.MySQL == nil || instance.Spec.MySQL.Restore == nil {
+		return resolveMySQLCredentialValue(configured, existing)
+	}
+	restore := instance.Spec.MySQL.Restore
+	mode := restore.CredentialMode
+	if mode == "" {
+		mode = v1.MySQLRestoreCredentialModeTarget
+	}
+	switch mode {
+	case v1.MySQLRestoreCredentialModeTarget:
+		return resolveMySQLCredentialValue(configured, existing)
+	case v1.MySQLRestoreCredentialModeAdoptSource:
+		if restore.SourceInstanceRef == nil || strings.TrimSpace(restore.SourceInstanceRef.Name) == "" {
+			return nil, fmt.Errorf("mysql restore credential mode %q requires sourceInstanceRef", mode)
+		}
+		sourceName := strings.TrimSpace(restore.SourceInstanceRef.Name)
+		if sourceName == instance.Name {
+			return nil, fmt.Errorf("mysql restore sourceInstanceRef %q must differ from target instance", sourceName)
+		}
+		source := &v1.KDBInstance{}
+		if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: instance.Namespace, Name: sourceName}, source); err != nil {
+			return nil, fmt.Errorf("read mysql restore source instance %q: %w", sourceName, err)
+		}
+		sourceCredential := &corev1.Secret{ObjectMeta: naming.MySQLCredentialSecret(source)}
+		if err := kubeClient.Get(ctx, client.ObjectKeyFromObject(sourceCredential), sourceCredential); err != nil {
+			return nil, fmt.Errorf("read mysql restore source credential Secret %q: %w", sourceCredential.Name, err)
+		}
+		password := sourceCredential.Data[naming.MySQLRootPasswordSecretKey]
+		if len(bytesTrimSpace(password)) == 0 {
+			return nil, fmt.Errorf("mysql restore source credential Secret %q has no %q", sourceCredential.Name, naming.MySQLRootPasswordSecretKey)
+		}
+		return append([]byte(nil), password...), nil
+	default:
+		return nil, fmt.Errorf("unsupported mysql restore credential mode %q", mode)
+	}
+}
+
+func bytesTrimSpace(value []byte) []byte {
+	return []byte(strings.TrimSpace(string(value)))
 }
 
 // resolveReplications renders YAML items under replications: based on deploy arch.

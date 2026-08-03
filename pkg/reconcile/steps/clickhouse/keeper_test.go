@@ -7,6 +7,8 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/naming"
+	"github.com/sqc157400661/util"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -86,6 +88,37 @@ func TestPlanNextKeeperMemberChange(t *testing.T) {
 	}
 	if actions[0].Member.Index != 1 || actions[0].Action != "CreateOrRepair" {
 		t.Fatalf("unexpected next member action: %#v", actions[0])
+	}
+}
+
+func TestKeeperReplicaReconcileRequiredForShutdownResume(t *testing.T) {
+	current := &appsv1.StatefulSet{}
+	current.Spec.Replicas = util.Int32(0)
+	desired := &appsv1.StatefulSet{}
+	desired.Spec.Replicas = util.Int32(1)
+
+	if !keeperReplicaReconcileRequired(current, desired) {
+		t.Fatal("keeperReplicaReconcileRequired() = false for shutdown resume")
+	}
+	current.Spec.Replicas = util.Int32(1)
+	if keeperReplicaReconcileRequired(current, desired) {
+		t.Fatal("keeperReplicaReconcileRequired() = true for matching replicas")
+	}
+}
+
+func TestMissingKeeperStatefulSetsIncludesEveryBootstrapPeer(t *testing.T) {
+	instance := standaloneInstanceWithKeeper(3)
+	desired, err := buildKeeperStatefulSets(instance, "kdb-sa")
+	if err != nil {
+		t.Fatalf("buildKeeperStatefulSets() error = %v", err)
+	}
+	existing := map[string]struct{}{desired[0].Name: {}}
+	missing := missingKeeperStatefulSets(desired, existing)
+	if len(missing) != 2 {
+		t.Fatalf("bootstrap must include both peers even while the first member is not ready, got %d", len(missing))
+	}
+	if missing[0].Name != desired[1].Name || missing[1].Name != desired[2].Name {
+		t.Fatalf("unexpected missing Keeper members: %s, %s", missing[0].Name, missing[1].Name)
 	}
 }
 

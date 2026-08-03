@@ -2,6 +2,7 @@ package steps
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
@@ -250,6 +251,11 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		pgWAL = naming.PostgreSQLWALMountPath + "/pg" + engineVersion + "_wal"
 	}
 	pgBackRestRepo := postgresPGBackRestRepoPath(instance)
+	restoreRepositoryPVC := ""
+	if instance.Annotations != nil && instance.Spec.PostgreSQL != nil && instance.Spec.PostgreSQL.Restore != nil &&
+		postgresPGBackRestRepoType(instance) == "local" {
+		restoreRepositoryPVC = strings.TrimSpace(instance.Annotations["kdb.com/restore-local-repository-pvc"])
+	}
 	var dr *v1.PostgreSQLDRSpec
 	if instance.Spec.PostgreSQL != nil {
 		dr = instance.Spec.PostgreSQL.DR
@@ -319,9 +325,21 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 			}},
 		})
 	}
+	if restoreRepositoryPVC != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "postgres-restore-repository",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: restoreRepositoryPVC,
+					ReadOnly:  true,
+				},
+			},
+		})
+	}
 
 	mounts := []corev1.VolumeMount{
 		{Name: "postgres-data", MountPath: naming.PostgreSQLDataMountPath},
+		{Name: "postgres-data", MountPath: naming.DataMountPath},
 		{Name: "patroni-config", MountPath: naming.PatroniConfigMountPath, ReadOnly: true},
 		{Name: "patroni-config", MountPath: naming.PGBackRestConfigMountPath, ReadOnly: true},
 		{Name: "postgres-tmp", MountPath: "/tmp"},
@@ -496,14 +514,16 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		Command: []string{
 			"bash",
 			"-ceu",
-			fmt.Sprintf("install -d %s %s %s %s %s /etc/postgresql/tls && cp /etc/postgresql/tls-source/* /etc/postgresql/tls/ && chmod 0600 /etc/postgresql/tls/tls.key && chmod 0644 /etc/postgresql/tls/ca.crt /etc/postgresql/tls/tls.crt && chown -R 100:102 %s %s %s %s %s /etc/postgresql/tls && exec /kdb/bin/postgres-startup.sh %s %s",
+			fmt.Sprintf("install -d %s %s %s %s %s %s /etc/postgresql/tls && cp /etc/postgresql/tls-source/* /etc/postgresql/tls/ && chmod 0600 /etc/postgresql/tls/tls.key /etc/postgresql/tls/client.key && chmod 0644 /etc/postgresql/tls/ca.crt /etc/postgresql/tls/tls.crt /etc/postgresql/tls/client.crt && chown -R 100:102 %s %s %s %s %s %s /etc/postgresql/tls && exec /kdb/bin/postgres-startup.sh %s %s",
 				naming.PostgreSQLDataMountPath,
 				pgData,
+				naming.DatabaseLogRoot,
 				naming.PostgreSQLWALMountPath,
 				naming.PostgreSQLSocketDirectory,
 				pgBackRestRepo,
 				naming.PostgreSQLDataMountPath,
 				pgData,
+				naming.DatabaseLogRoot,
 				naming.PostgreSQLWALMountPath,
 				naming.PostgreSQLSocketDirectory,
 				pgBackRestRepo,
@@ -514,7 +534,7 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 		Image:           instanceSet.MainContainer.Image,
 		Resources:       instanceSet.MainContainer.Resources,
 		SecurityContext: security.InitSecurityContextForStartUp(),
-		VolumeMounts:    append(databaseMounts, corev1.VolumeMount{Name: "postgres-tls-source", MountPath: "/etc/postgresql/tls-source", ReadOnly: true}),
+		VolumeMounts:    append(postgresStartupVolumeMounts(databaseMounts, mounts, instance), corev1.VolumeMount{Name: "postgres-tls-source", MountPath: "/etc/postgresql/tls-source", ReadOnly: true}),
 	}
 	startup.SecurityContext.RunAsUser = util.Int64(0)
 
@@ -526,7 +546,16 @@ func postgresPodIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) {
 	}
 	sts.Spec.Template.Spec.Volumes = volumes
 	initContainers := []corev1.Container{}
-	if restore := postgresRestoreContainer(instance, instanceSet, envs, mounts); restore != nil {
+	restoreMounts := mounts
+	if restoreRepositoryPVC != "" {
+		restoreMounts = append(append([]corev1.VolumeMount{}, mounts...), corev1.VolumeMount{
+			Name:      "postgres-restore-repository",
+			MountPath: "/var/lib/kdb/restore-repository-source",
+			SubPath:   "pgbackrestrepo",
+			ReadOnly:  true,
+		})
+	}
+	if restore := postgresRestoreContainer(instance, instanceSet, envs, restoreMounts); restore != nil {
 		initContainers = append(initContainers, *restore)
 	}
 	initContainers = append(initContainers, startup)
@@ -567,12 +596,38 @@ func postgresRestoreContainer(instance *v1.KDBInstance, instanceSet shared.Insta
 	if restore.TargetAction != "" {
 		args = append(args, "--target-action="+restore.TargetAction)
 	}
+	if naming.PostgreSQLSplitRuntime(instance) {
+		args = append(args, "--recovery-option=restore_command="+fmt.Sprintf(
+			"kdb-pg-tool --socket=/var/run/kdb-ha/postgres-tools.sock pgbackrest --config=%s/%s --stanza=%s archive-get %%f %%p",
+			naming.PGBackRestConfigMountPath,
+			naming.PGBackRestConfigKey,
+			postgresPGBackRestStanza(instance),
+		))
+	}
 	args = append(args, "restore")
+	restoreEnvs := append([]corev1.EnvVar{}, envs...)
+	if instance.Annotations != nil && strings.TrimSpace(instance.Annotations["kdb.com/restore-local-repository-pvc"]) != "" {
+		restoreEnvs = append(restoreEnvs,
+			corev1.EnvVar{Name: "KDB_LOCAL_RESTORE_REPOSITORY_SOURCE", Value: "/var/lib/kdb/restore-repository-source"},
+			corev1.EnvVar{Name: "KDB_LOCAL_RESTORE_REPOSITORY_TARGET", Value: postgresPGBackRestRepoPath(instance)},
+		)
+	}
 	return &corev1.Container{
 		Name: "pgbackrest-restore", Image: instanceSet.SidecarContainer.Image,
 		Command: []string{"bash", "-ceu"},
-		Args:    append([]string{"marker=/var/run/kdb-ha/restore-mode; touch \"$marker\"; install -d \"$PGDATA\"; if [ ! -s \"$PGDATA/PG_VERSION\" ]; then \"$@\"; fi; test -s \"$PGDATA/PG_VERSION\"; rm -f \"$marker\"", "--"}, args...),
-		Env:     append(envs, instanceSet.SidecarContainer.Env...), Resources: instanceSet.SidecarContainer.Resources,
+		Args: append([]string{`marker=/var/run/kdb-ha/restore-mode
+touch "$marker"
+install -d "$PGDATA"
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+  if [ -n "${KDB_LOCAL_RESTORE_REPOSITORY_SOURCE:-}" ]; then
+    test -s "$KDB_LOCAL_RESTORE_REPOSITORY_SOURCE/backup/$PGBACKREST_STANZA/backup.info"
+    cp -R "$KDB_LOCAL_RESTORE_REPOSITORY_SOURCE/." "$KDB_LOCAL_RESTORE_REPOSITORY_TARGET/"
+  fi
+  "$@"
+fi
+test -s "$PGDATA/PG_VERSION"
+rm -f "$marker"`, "--"}, args...),
+		Env: append(restoreEnvs, instanceSet.SidecarContainer.Env...), Resources: instanceSet.SidecarContainer.Resources,
 		SecurityContext: security.InitLegacySecurityContext(), VolumeMounts: mounts,
 	}
 }
@@ -582,11 +637,25 @@ func postgresDatabaseVolumeMounts(mounts []corev1.VolumeMount) []corev1.VolumeMo
 	for _, mount := range mounts {
 		switch mount.Name {
 		case "postgres-data":
-			if mount.MountPath == naming.PostgreSQLDataMountPath {
+			if mount.MountPath == naming.PostgreSQLDataMountPath || mount.MountPath == naming.DataMountPath {
 				result = append(result, mount)
 			}
 		case "postgres-wal", "postgres-tmp", "postgres-dshm", "postgres-runtime", "postgres-tls":
 			result = append(result, mount)
+		}
+	}
+	return result
+}
+
+func postgresStartupVolumeMounts(databaseMounts, allMounts []corev1.VolumeMount, instance *v1.KDBInstance) []corev1.VolumeMount {
+	result := append([]corev1.VolumeMount{}, databaseMounts...)
+	if !postgresPGBackRestEnabled(instance) || postgresPGBackRestRepoType(instance) != "local" {
+		return result
+	}
+	repositoryPath := postgresPGBackRestRepoPath(instance)
+	for _, mount := range allMounts {
+		if mount.Name == "postgres-data" && mount.MountPath == repositoryPath {
+			return append(result, mount)
 		}
 	}
 	return result
@@ -653,11 +722,18 @@ func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.Inst
 		monitor.Resources = exporter.Resources
 	}
 	monitor.Env = append([]corev1.EnvVar{
-		{Name: "DATA_SOURCE_URI", Value: fmt.Sprintf("localhost:%d/postgres?sslmode=verify-ca&sslrootcert=/etc/postgresql/tls/ca.crt&sslcert=/etc/postgresql/tls/tls.crt&sslkey=/etc/postgresql/tls/tls.key", postgresPort(instance))},
+		{Name: "DATA_SOURCE_URI", Value: fmt.Sprintf("localhost:%d/postgres?sslmode=verify-ca&sslrootcert=/etc/postgresql/tls/ca.crt&sslcert=/etc/postgresql/tls/client.crt&sslkey=/etc/postgresql/tls/client.key", postgresPort(instance))},
 		postgresCredentialEnv(instance, "DATA_SOURCE_USER", naming.PostgreSQLMonitoringUsernameKey),
 		postgresCredentialEnv(instance, "DATA_SOURCE_PASS", naming.PostgreSQLMonitoringPasswordKey),
 		{Name: "PG_EXPORTER_EXTEND_QUERY_PATH", Value: naming.PatroniConfigMountPath + "/postgres-exporter-queries.yaml"},
 	}, monitor.Env...)
+	exporterSecurityContext := security.InitLegacySecurityContext()
+	// postgres-startup deliberately owns the client key as postgres:postgres
+	// with mode 0600. Running the exporter as the same non-root UID is the only
+	// lib/pq-compatible way to read it without weakening private-key modes.
+	exporterSecurityContext.RunAsUser = util.Int64(100)
+	exporterSecurityContext.RunAsGroup = util.Int64(102)
+	exporterSecurityContext.RunAsNonRoot = util.Bool(true)
 	return corev1.Container{
 		Name:      naming.ContainerPostgreSQLExporter,
 		Command:   monitor.Command,
@@ -670,7 +746,7 @@ func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.Inst
 			ContainerPort: 9187,
 			Protocol:      corev1.ProtocolTCP,
 		}},
-		SecurityContext: security.InitLegacySecurityContext(),
+		SecurityContext: exporterSecurityContext,
 		VolumeMounts:    postgresExporterVolumeMounts(mounts),
 	}
 }

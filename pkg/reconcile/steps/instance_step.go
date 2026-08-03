@@ -28,6 +28,7 @@ import (
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
 	"github.com/sqc157400661/kdb/internal/config"
+	internalmonitoring "github.com/sqc157400661/kdb/internal/monitoring"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/observed"
 	"github.com/sqc157400661/kdb/internal/postgresqlruntime"
@@ -491,6 +492,7 @@ func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 					status.ReadyReplicas++
 					status.PodInfos = append(status.PodInfos, shared.PodStatusInfo{
 						PodName:  pod.Name,
+						PodUID:   string(pod.UID),
 						PodPhase: pod.Status.Phase,
 						PodIP:    pod.Status.PodIP,
 						NodeName: pod.Spec.NodeName,
@@ -934,14 +936,37 @@ func mysqlPodMonitor(instance *v1.KDBInstance) *unstructured.Unstructured {
 			},
 			"podMetricsEndpoints": []interface{}{
 				map[string]interface{}{
-					"port":     naming.PortMySQLMetrics,
-					"path":     "/metrics",
-					"interval": "30s",
+					"port":        naming.PortMySQLMetrics,
+					"path":        "/metrics",
+					"interval":    "30s",
+					"relabelings": internalmonitoring.PodTargetRelabelings(instance),
 				},
 				map[string]interface{}{
-					"port":     naming.PortSidecarMetrics,
-					"path":     "/metrics",
-					"interval": "30s",
+					"port":        naming.PortSidecarMetrics,
+					"path":        "/metrics",
+					"scheme":      "https",
+					"interval":    "30s",
+					"relabelings": internalmonitoring.PodTargetRelabelings(instance),
+					"tlsConfig": map[string]interface{}{
+						"ca": map[string]interface{}{
+							"secret": map[string]interface{}{
+								"name": naming.MySQLCredentialSecret(instance).Name,
+								"key":  "ca.crt",
+							},
+						},
+						"cert": map[string]interface{}{
+							"secret": map[string]interface{}{
+								"name": naming.MySQLCredentialSecret(instance).Name,
+								"key":  "client.crt",
+							},
+						},
+						"keySecret": map[string]interface{}{
+							"name": naming.MySQLCredentialSecret(instance).Name,
+							"key":  "client.key",
+						},
+						"serverName":         "localhost",
+						"insecureSkipVerify": false,
+					},
 				},
 			},
 		},
@@ -952,6 +977,69 @@ func mysqlPodMonitor(instance *v1.KDBInstance) *unstructured.Unstructured {
 
 func mysqlPrometheusRule(instance *v1.KDBInstance) *unstructured.Unstructured {
 	podMatcher := fmt.Sprintf(`namespace="%s",pod=~"%s.*"`, instance.Namespace, instance.Name)
+	rules := internalmonitoring.InstanceResourceRecordingRules(instance)
+	rules = append(rules,
+		map[string]interface{}{
+			"alert": "KDBMySQLExporterDown",
+			"expr":  fmt.Sprintf(`mysql_up{%s} == 0`, podMatcher),
+			"for":   "2m",
+			"labels": map[string]interface{}{
+				"severity": "critical",
+				"engine":   "mysql",
+			},
+			"annotations": map[string]interface{}{
+				"summary": "MySQL exporter is down",
+			},
+		},
+		map[string]interface{}{
+			"alert": "KDBMySQLSidecarDown",
+			"expr":  fmt.Sprintf(`kdb_sidecar_up{%s} == 0`, podMatcher),
+			"for":   "2m",
+			"labels": map[string]interface{}{
+				"severity": "critical",
+				"engine":   "mysql",
+			},
+			"annotations": map[string]interface{}{
+				"summary": "KDB MySQL sidecar metrics are down",
+			},
+		},
+		map[string]interface{}{
+			"alert": "KDBMySQLSQLProbeFailed",
+			"expr":  fmt.Sprintf(`kdb_mysql_mgr_sql_up{%s} == 0`, podMatcher),
+			"for":   "1m",
+			"labels": map[string]interface{}{
+				"severity": "critical",
+				"engine":   "mysql",
+			},
+			"annotations": map[string]interface{}{
+				"summary": "KDB MySQL SQL read probe failed",
+			},
+		},
+		map[string]interface{}{
+			"alert": "KDBMySQLSQLWriteProbeFailed",
+			"expr":  fmt.Sprintf(`kdb_mysql_mgr_sql_write_up{%s} == 0`, podMatcher),
+			"for":   "1m",
+			"labels": map[string]interface{}{
+				"severity": "critical",
+				"engine":   "mysql",
+			},
+			"annotations": map[string]interface{}{
+				"summary": "KDB MySQL SQL session write probe failed",
+			},
+		},
+		map[string]interface{}{
+			"alert": "KDBMySQLReplicationLagHigh",
+			"expr":  fmt.Sprintf(`kdb_mysql_mgr_replication_lag_seconds{%s} > 60`, podMatcher),
+			"for":   "5m",
+			"labels": map[string]interface{}{
+				"severity": "warning",
+				"engine":   "mysql",
+			},
+			"annotations": map[string]interface{}{
+				"summary": "KDB MySQL replication lag is high",
+			},
+		},
+	)
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "monitoring.coreos.com/v1",
 		"kind":       "PrometheusRule",
@@ -962,45 +1050,8 @@ func mysqlPrometheusRule(instance *v1.KDBInstance) *unstructured.Unstructured {
 		},
 		"spec": map[string]interface{}{
 			"groups": []interface{}{map[string]interface{}{
-				"name": "kdb.mysql." + instance.Name,
-				"rules": []interface{}{
-					map[string]interface{}{
-						"alert": "KDBMySQLExporterDown",
-						"expr":  fmt.Sprintf(`mysql_up{%s} == 0`, podMatcher),
-						"for":   "2m",
-						"labels": map[string]interface{}{
-							"severity": "critical",
-							"engine":   "mysql",
-						},
-						"annotations": map[string]interface{}{
-							"summary": "MySQL exporter is down",
-						},
-					},
-					map[string]interface{}{
-						"alert": "KDBMySQLSidecarDown",
-						"expr":  fmt.Sprintf(`kdb_sidecar_up{%s} == 0`, podMatcher),
-						"for":   "2m",
-						"labels": map[string]interface{}{
-							"severity": "critical",
-							"engine":   "mysql",
-						},
-						"annotations": map[string]interface{}{
-							"summary": "KDB MySQL sidecar metrics are down",
-						},
-					},
-					map[string]interface{}{
-						"alert": "KDBMySQLReplicationLagHigh",
-						"expr":  fmt.Sprintf(`kdb_mysql_mgr_replication_lag_seconds{%s} > 60`, podMatcher),
-						"for":   "5m",
-						"labels": map[string]interface{}{
-							"severity": "warning",
-							"engine":   "mysql",
-						},
-						"annotations": map[string]interface{}{
-							"summary": "KDB MySQL replication lag is high",
-						},
-					},
-				},
+				"name":  "kdb.mysql." + instance.Name,
+				"rules": rules,
 			}},
 		},
 	}}

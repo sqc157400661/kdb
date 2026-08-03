@@ -36,6 +36,11 @@ func (s *InstanceStepManager) SetGlobalConfig() kube.BindFunc {
 	return s.StepBinder(
 		"ClickHouseSetGlobalConfig",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			// Keep the ClickHouse-specific wrapper safe for unit-test and dry-run
+			// callers that do not have an initialized reconcile context yet.
+			if rc == nil {
+				return flow.Pass()
+			}
 			if !clickHouseUsesStorageProfiles(rc.GetInstance()) {
 				return flow.Pass()
 			}
@@ -265,10 +270,6 @@ func (s *InstanceStepManager) SetService() kube.BindFunc {
 		})
 }
 
-func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
-	return s.clickHouseNoOpStep("ClickHouseSetMonitorNoOp")
-}
-
 func (s *InstanceStepManager) InitObservedRunner() kube.BindFunc {
 	return s.StepBinder(
 		"ClickHouseProjectStandaloneStatus",
@@ -340,6 +341,9 @@ func (s *InstanceStepManager) ScaleDownInstance() kube.BindFunc {
 	return s.StepBinder(
 		"ClickHouseScaleDownAndRolling",
 		func(rc *context.InstanceContext, flow kube.Flow) (reconcile.Result, error) {
+			if rc == nil {
+				return flow.Pass()
+			}
 			requeue, err := reconcileClickHouseScaleDownAndRolling(rc)
 			if err != nil {
 				return flow.Error(err, "reconcile clickhouse scale down or rolling update err")

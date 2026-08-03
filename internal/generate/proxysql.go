@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	defaultProxySQLImage = "proxysql/proxysql:3.0.2"
-	defaultProxyMgrImage = "kdb-sidecar:latest"
+	defaultProxySQLImage                = "proxysql/proxysql:3.0.2"
+	defaultProxyMgrImage                = "kdb-sidecar:latest"
+	proxySQLAdminCredentialsPlaceholder = "__KDB_ADMIN_CREDENTIALS__"
 )
 
 type ProxySQLDesiredConfig struct {
@@ -111,7 +112,7 @@ func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment,
 			Name:    "proxysql",
 			Image:   proxy.Image,
 			Command: []string{"/bin/sh", "-c"},
-			Args:    []string{"trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"},
+			Args:    []string{proxySQLStartCommand()},
 			Ports: []corev1.ContainerPort{
 				{Name: "mysql", ContainerPort: mysqlPort},
 				{Name: "admin", ContainerPort: adminPort},
@@ -119,13 +120,15 @@ func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment,
 			Resources: proxy.Resources.ProxySQL,
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: naming.ProxySQLConfigVolume, MountPath: naming.ProxySQLConfigMountPath, ReadOnly: true},
+				{Name: naming.ProxySQLSecretVolume, MountPath: naming.ProxySQLSecretMountPath, ReadOnly: true},
 				{Name: naming.ProxySQLDataVolume, MountPath: naming.ProxySQLDataMountPath},
+				{Name: naming.ProxySQLRuntimeVolume, MountPath: naming.ProxySQLRuntimeMountPath},
 			},
 		},
 		{
 			Name:    "mgr",
 			Image:   proxy.MgrImage,
-			Command: []string{"sidecar"},
+			Command: []string{"/kdb/bin/manager"},
 			Args: []string{
 				"ProxySQLMgr",
 				"-c",
@@ -135,7 +138,7 @@ func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment,
 				{Name: "PROXYSQL_ADMIN_ADDR", Value: "127.0.0.1:" + strconv.Itoa(int(adminPort))},
 				{Name: "PROXYSQL_CONFIG_VERSION_FILE", Value: naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigVersionFileName},
 				{Name: "PROXYSQL_SECRET_DIR", Value: naming.ProxySQLSecretMountPath},
-				{Name: "PROXYSQL_START_COMMAND", Value: "proxysql -f -c " + naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigFileName},
+				{Name: "PROXYSQL_START_COMMAND", Value: "/bin/true"},
 			},
 			Ports: []corev1.ContainerPort{
 				{Name: "mgr-http", ContainerPort: 8080},
@@ -155,22 +158,11 @@ func ProxySQLDeploymentIntent(cluster *v1.KDBCluster, deploy *appsv1.Deployment,
 			},
 		},
 	}
-	deploy.Spec.Template.Spec.Volumes = []corev1.Volume{
-		{
-			Name: naming.ProxySQLConfigVolume,
-			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: naming.ProxySQLConfigMap(cluster).Name},
-			}},
-		},
-		{
-			Name: naming.ProxySQLSecretVolume,
-			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-				SecretName: naming.ProxySQLSecret(cluster).Name,
-			}},
-		},
-		{Name: naming.ProxySQLDataVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		{Name: naming.ProxySQLRuntimeVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-	}
+	deploy.Spec.Template.Spec.Volumes = proxySQLVolumes(
+		naming.ProxySQLConfigMap(cluster).Name,
+		naming.ProxySQLSecret(cluster).Name,
+		proxy.Config.Inline.Users,
+	)
 }
 
 func ProxySQLInstanceDeploymentIntent(instance *v1.KDBInstance, deploy *appsv1.Deployment, configVersion string) {
@@ -199,6 +191,7 @@ func ProxySQLInstanceDeploymentIntent(instance *v1.KDBInstance, deploy *appsv1.D
 	deploy.Spec.Template.Spec.Volumes = proxySQLVolumes(
 		naming.ProxySQLInstanceConfigMap(instance).Name,
 		naming.ProxySQLInstanceSecret(instance).Name,
+		proxy.Config.Inline.Users,
 	)
 }
 
@@ -251,8 +244,11 @@ func RenderProxySQLDesiredConfig(cluster *v1.KDBCluster) (string, []v1.KDBProxyB
 	}
 	users := make([]ProxySQLDesiredUserConfig, 0, len(proxy.Config.Inline.Users))
 	for _, user := range proxy.Config.Inline.Users {
+		if err := validateProxySQLUser(user); err != nil {
+			return "", nil, err
+		}
 		users = append(users, ProxySQLDesiredUserConfig{
-			Username:     user.Username,
+			Username:     strings.TrimSpace(user.Username),
 			DefaultRoute: defaultString(user.DefaultRoute, "writer"),
 		})
 	}
@@ -285,8 +281,11 @@ func RenderProxySQLInstanceDesiredConfig(instance *v1.KDBInstance) (string, []v1
 	}
 	users := make([]ProxySQLDesiredUserConfig, 0, len(proxy.Config.Inline.Users))
 	for _, user := range proxy.Config.Inline.Users {
+		if err := validateProxySQLUser(user); err != nil {
+			return "", nil, err
+		}
 		users = append(users, ProxySQLDesiredUserConfig{
-			Username:     user.Username,
+			Username:     strings.TrimSpace(user.Username),
 			DefaultRoute: defaultString(user.DefaultRoute, "writer"),
 		})
 	}
@@ -343,13 +342,14 @@ func renderProxySQLConfig(proxy v1.KDBProxySpec) string {
 	return fmt.Sprintf(`datadir="%s"
 admin_variables=
 {
+  admin_credentials="%s"
   mysql_ifaces="0.0.0.0:%d"
 }
 mysql_variables=
 {
   %s
 }
-`, naming.ProxySQLDataMountPath, adminPort, strings.Join(mysqlVariables, "\n  "))
+`, naming.ProxySQLDataMountPath, proxySQLAdminCredentialsPlaceholder, adminPort, strings.Join(mysqlVariables, "\n  "))
 }
 
 func ProxySQLConfigVersion(parts ...string) string {
@@ -487,7 +487,7 @@ func proxySQLContainers(proxy v1.KDBProxySpec, mysqlPort, adminPort int32) []cor
 			Name:    "proxysql",
 			Image:   proxy.Image,
 			Command: []string{"/bin/sh", "-c"},
-			Args:    []string{"trap 'exit 0' TERM INT; while true; do sleep 3600 & wait $!; done"},
+			Args:    []string{proxySQLStartCommand()},
 			Ports: []corev1.ContainerPort{
 				{Name: "mysql", ContainerPort: mysqlPort},
 				{Name: "admin", ContainerPort: adminPort},
@@ -495,13 +495,15 @@ func proxySQLContainers(proxy v1.KDBProxySpec, mysqlPort, adminPort int32) []cor
 			Resources: proxy.Resources.ProxySQL,
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: naming.ProxySQLConfigVolume, MountPath: naming.ProxySQLConfigMountPath, ReadOnly: true},
+				{Name: naming.ProxySQLSecretVolume, MountPath: naming.ProxySQLSecretMountPath, ReadOnly: true},
 				{Name: naming.ProxySQLDataVolume, MountPath: naming.ProxySQLDataMountPath},
+				{Name: naming.ProxySQLRuntimeVolume, MountPath: naming.ProxySQLRuntimeMountPath},
 			},
 		},
 		{
 			Name:    "mgr",
 			Image:   proxy.MgrImage,
-			Command: []string{"sidecar"},
+			Command: []string{"/kdb/bin/manager"},
 			Args: []string{
 				"ProxySQLMgr",
 				"-c",
@@ -511,7 +513,7 @@ func proxySQLContainers(proxy v1.KDBProxySpec, mysqlPort, adminPort int32) []cor
 				{Name: "PROXYSQL_ADMIN_ADDR", Value: "127.0.0.1:" + strconv.Itoa(int(adminPort))},
 				{Name: "PROXYSQL_CONFIG_VERSION_FILE", Value: naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigVersionFileName},
 				{Name: "PROXYSQL_SECRET_DIR", Value: naming.ProxySQLSecretMountPath},
-				{Name: "PROXYSQL_START_COMMAND", Value: "proxysql -f -c " + naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigFileName},
+				{Name: "PROXYSQL_START_COMMAND", Value: "/bin/true"},
 			},
 			Ports: []corev1.ContainerPort{
 				{Name: "mgr-http", ContainerPort: 8080},
@@ -533,7 +535,45 @@ func proxySQLContainers(proxy v1.KDBProxySpec, mysqlPort, adminPort int32) []cor
 	}
 }
 
-func proxySQLVolumes(configMapName, secretName string) []corev1.Volume {
+func proxySQLStartCommand() string {
+	configFile := naming.ProxySQLConfigMountPath + "/" + naming.ProxySQLConfigFileName
+	runtimeConfigFile := naming.ProxySQLRuntimeMountPath + "/" + naming.ProxySQLConfigFileName
+	adminUsernameFile := naming.ProxySQLSecretMountPath + "/admin-username"
+	adminPasswordFile := naming.ProxySQLSecretMountPath + "/admin-password"
+	return fmt.Sprintf(`set -eu
+umask 077
+admin_username="$(tr -d '\r\n' < %s)"
+admin_password="$(tr -d '\r\n' < %s)"
+case "${admin_username}" in ""|*[!A-Za-z0-9_.-]*) echo "invalid ProxySQL admin username" >&2; exit 1;; esac
+case "${admin_password}" in ""|*[!A-Za-z0-9_.-]*) echo "invalid ProxySQL admin password" >&2; exit 1;; esac
+cp %s %s
+sed -i "s#%s#${admin_username}:${admin_password}#g" %s
+exec proxysql -f -c %s`, adminUsernameFile, adminPasswordFile, configFile, runtimeConfigFile,
+		proxySQLAdminCredentialsPlaceholder, runtimeConfigFile, runtimeConfigFile)
+}
+
+func proxySQLVolumes(configMapName, secretName string, users []v1.KDBProxyUserSpec) []corev1.Volume {
+	secretSources := []corev1.VolumeProjection{{
+		Secret: &corev1.SecretProjection{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+		},
+	}}
+	for _, user := range users {
+		username := strings.TrimSpace(user.Username)
+		if username == "" || user.PasswordSecretRef == nil {
+			continue
+		}
+		secretSources = append(secretSources, corev1.VolumeProjection{
+			Secret: &corev1.SecretProjection{
+				LocalObjectReference: user.PasswordSecretRef.LocalObjectReference,
+				Items: []corev1.KeyToPath{{
+					Key:  user.PasswordSecretRef.Key,
+					Path: "users/" + username + "/password",
+				}},
+				Optional: user.PasswordSecretRef.Optional,
+			},
+		})
+	}
 	return []corev1.Volume{
 		{
 			Name: naming.ProxySQLConfigVolume,
@@ -542,14 +582,30 @@ func proxySQLVolumes(configMapName, secretName string) []corev1.Volume {
 			}},
 		},
 		{
-			Name: naming.ProxySQLSecretVolume,
-			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-				SecretName: secretName,
-			}},
+			Name:         naming.ProxySQLSecretVolume,
+			VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{Sources: secretSources}},
 		},
 		{Name: naming.ProxySQLDataVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: naming.ProxySQLRuntimeVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
+}
+
+func validateProxySQLUser(user v1.KDBProxyUserSpec) error {
+	username := strings.TrimSpace(user.Username)
+	if username == "" {
+		return fmt.Errorf("proxysql user username is empty")
+	}
+	for _, char := range username {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' || char == '-' || char == '.' {
+			continue
+		}
+		return fmt.Errorf("proxysql user %q contains a character unsupported by Secret projection paths", username)
+	}
+	if user.PasswordSecretRef == nil || strings.TrimSpace(user.PasswordSecretRef.Name) == "" || strings.TrimSpace(user.PasswordSecretRef.Key) == "" {
+		return fmt.Errorf("proxysql user %q requires passwordSecretRef.name and passwordSecretRef.key", username)
+	}
+	return nil
 }
 
 func ProxyReplicas(proxy v1.KDBProxySpec) int32 {

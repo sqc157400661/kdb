@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	stdcontext "context"
 	"strings"
 	"testing"
 
@@ -10,6 +11,10 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/util"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func int32ptr(v int32) *int32 { return &v }
@@ -124,5 +129,85 @@ func TestResolveMySQLCredentialValueGeneratesAndPreservesFallback(t *testing.T) 
 	}
 	if string(configured) != " configured-secret " {
 		t.Fatalf("configured credential = %q", configured)
+	}
+}
+
+func TestResolveMySQLReplicationPasswordEnforcesMGRRecoveryLimit(t *testing.T) {
+	instance := &v1.KDBInstance{Spec: v1.KDBInstanceSpec{DeployArch: "MGR"}}
+	existing := []byte("0123456789abcdef0123456789abcdef0123456789abcdef")
+
+	resolved, err := resolveMySQLReplicationPassword(instance, "", existing)
+	if err != nil {
+		t.Fatalf("migrate generated MGR replication credential: %v", err)
+	}
+	if got, want := string(resolved), string(existing[:mysqlMGRRecoveryPasswordMaxLength]); got != want {
+		t.Fatalf("resolved MGR replication credential = %q, want deterministic prefix %q", got, want)
+	}
+
+	if _, err := resolveMySQLReplicationPassword(instance, string(existing), nil); err == nil || !strings.Contains(err.Error(), "maximum length of 32") {
+		t.Fatalf("configured overlength MGR replication credential error = %v, want maximum length validation", err)
+	}
+
+	nonMGR := &v1.KDBInstance{Spec: v1.KDBInstanceSpec{DeployArch: "Master-Replica"}}
+	resolved, err = resolveMySQLReplicationPassword(nonMGR, "", existing)
+	if err != nil {
+		t.Fatalf("preserve non-MGR replication credential: %v", err)
+	}
+	if string(resolved) != string(existing) {
+		t.Fatal("non-MGR replication credential was unexpectedly shortened")
+	}
+}
+
+func TestResolveMySQLRootPasswordAdoptsSourceCredential(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add kdb scheme: %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add core scheme: %v", err)
+	}
+	source := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: "mysql-source", Namespace: "kdb"}}
+	target := &v1.KDBInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "mysql-target", Namespace: "kdb"},
+		Spec: v1.KDBInstanceSpec{MySQL: &v1.MySQLSpec{Restore: &v1.MySQLRestoreSpec{
+			CredentialMode:    v1.MySQLRestoreCredentialModeAdoptSource,
+			SourceInstanceRef: &corev1.LocalObjectReference{Name: source.Name},
+		}}},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		source,
+		&corev1.Secret{ObjectMeta: naming.MySQLCredentialSecret(source), Data: map[string][]byte{
+			naming.MySQLRootPasswordSecretKey: []byte("source-secret"),
+		}},
+	).Build()
+	got, err := resolveMySQLRootPassword(stdcontext.Background(), client, target, "target-secret", []byte("old-target-secret"))
+	if err != nil {
+		t.Fatalf("resolveMySQLRootPassword() error = %v", err)
+	}
+	if string(got) != "source-secret" {
+		t.Fatalf("root password = %q, want source credential", got)
+	}
+}
+
+func TestResolveMySQLRootPasswordTargetModePreservesLegacyResolution(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add kdb scheme: %v", err)
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	target := &v1.KDBInstance{Spec: v1.KDBInstanceSpec{MySQL: &v1.MySQLSpec{Restore: &v1.MySQLRestoreSpec{
+		CredentialMode: v1.MySQLRestoreCredentialModeTarget,
+	}}}}
+	got, err := resolveMySQLRootPassword(stdcontext.Background(), client, target, "target-secret", []byte("old-target-secret"))
+	if err != nil {
+		t.Fatalf("resolveMySQLRootPassword() error = %v", err)
+	}
+	if string(got) != "target-secret" {
+		t.Fatalf("root password = %q, want configured target credential", got)
+	}
+
+	target.Spec.MySQL.Restore.CredentialMode = v1.MySQLRestoreCredentialModeAdoptSource
+	if _, err = resolveMySQLRootPassword(stdcontext.Background(), client, target, "", nil); err == nil || !strings.Contains(err.Error(), "sourceInstanceRef") {
+		t.Fatalf("missing sourceInstanceRef error = %v", err)
 	}
 }
