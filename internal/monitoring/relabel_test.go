@@ -7,6 +7,7 @@ import (
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/kdb/internal/naming"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -14,8 +15,13 @@ func TestPodTargetRelabelingsCarryStrictPlatformScope(t *testing.T) {
 	instance := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{
 		Name: "mysql-orders",
 		Labels: map[string]string{
-			CloudClusterLabel: "cell-a",
-			InstanceIDLabel:   "instance-a",
+			CloudClusterLabel:            "cell-a",
+			InstanceIDLabel:              "instance-a",
+			naming.LabelScopeTenant:      "default",
+			naming.LabelScopeProject:     "trade",
+			naming.LabelScopeEnvironment: "prod",
+			naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-beijing"),
+			naming.LabelScopeInstance:    "instance-a",
 		},
 	}}
 	relabelings := PodTargetRelabelings(instance)
@@ -34,6 +40,10 @@ func TestPodTargetRelabelingsCarryStrictPlatformScope(t *testing.T) {
 		"cell_id":          "cell-a",
 		"instance_id":      "instance-a",
 		"kdb_name":         "mysql-orders",
+		"tenant_id":        "default",
+		"project_id":       "trade",
+		"environment_id":   "prod",
+		"region_id":        naming.KubernetesLabelValue("volcengine/cn-beijing"),
 	} {
 		if got[key] != want {
 			t.Fatalf("%s replacement = %q, want %q", key, got[key], want)
@@ -48,8 +58,13 @@ func TestInstanceResourceRecordingRulesAttachStrictPlatformScope(t *testing.T) {
 			Name:      "orders",
 			Namespace: "kdb",
 			Labels: map[string]string{
-				CloudClusterLabel: "cell-a",
-				InstanceIDLabel:   "instance-a",
+				CloudClusterLabel:            "cell-a",
+				InstanceIDLabel:              "instance-a",
+				naming.LabelScopeTenant:      "default",
+				naming.LabelScopeProject:     "trade",
+				naming.LabelScopeEnvironment: "prod",
+				naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-beijing"),
+				naming.LabelScopeInstance:    "instance-a",
 			},
 		},
 		Spec: v1.KDBInstanceSpec{Engine: "mysql", InstanceSet: shared.InstanceSetSpec{Replicas: &replicas}},
@@ -79,6 +94,10 @@ func TestInstanceResourceRecordingRulesAttachStrictPlatformScope(t *testing.T) {
 			"cell_id":          "cell-a",
 			"instance_id":      "instance-a",
 			"kdb_name":         "orders",
+			"tenant_id":        "default",
+			"project_id":       "trade",
+			"environment_id":   "prod",
+			"region_id":        naming.KubernetesLabelValue("volcengine/cn-beijing"),
 		} {
 			if labels[key] != want {
 				t.Fatalf("record %s label %s = %v, want %q", record, key, labels[key], want)

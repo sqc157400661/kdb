@@ -100,8 +100,8 @@ func buildClickHouseStatefulSet(instance *v1.KDBInstance, plan clickHouseHostPla
 		Name:      plan.StatefulSet,
 	}}
 	statefulSet.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("StatefulSet"))
-	statefulSet.Annotations = naming.Merge(instance.Annotations, group.Instance.Metadata.GetAnnotationsOrNil())
-	statefulSet.Labels = naming.Merge(instance.Labels, group.Instance.Metadata.GetLabelsOrNil(), labels)
+	statefulSet.Annotations = naming.Merge(instance.Annotations, group.Instance.Metadata.GetAnnotationsOrNil(), naming.PlatformScopeAnnotations(instance.Annotations))
+	statefulSet.Labels = naming.Merge(instance.Labels, group.Instance.Metadata.GetLabelsOrNil(), naming.PlatformScopeLabels(instance.Labels), labels)
 	statefulSet.Spec.Replicas = replicas
 	statefulSet.Spec.ServiceName = naming.ClickHouseGroupHeadlessServiceName(instance.Name, group.Name)
 	statefulSet.Spec.RevisionHistoryLimit = util.Int32(0)
@@ -111,14 +111,14 @@ func buildClickHouseStatefulSet(instance *v1.KDBInstance, plan clickHouseHostPla
 		WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 	}
 	statefulSet.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-	statefulSet.Spec.Template.Annotations = naming.Merge(instance.Annotations, group.Instance.Metadata.GetAnnotationsOrNil())
+	statefulSet.Spec.Template.Annotations = naming.Merge(instance.Annotations, group.Instance.Metadata.GetAnnotationsOrNil(), naming.PlatformScopeAnnotations(instance.Annotations))
 	if statefulSet.Spec.Template.Annotations == nil {
 		statefulSet.Spec.Template.Annotations = map[string]string{}
 	}
 	statefulSet.Spec.Template.Annotations[annotationPodRevision] = podRevision(instance, plan)
 	statefulSet.Spec.Template.Annotations[annotationReloadableRevision] = reloadableConfigRevision(instance)
 	statefulSet.Spec.Template.Annotations[annotationEngineVersion] = instance.Spec.EngineVersion
-	statefulSet.Spec.Template.Labels = naming.Merge(instance.Labels, group.Instance.Metadata.GetLabelsOrNil(), labels)
+	statefulSet.Spec.Template.Labels = naming.Merge(instance.Labels, group.Instance.Metadata.GetLabelsOrNil(), naming.PlatformScopeLabels(instance.Labels), labels)
 	statefulSet.Spec.Template.Labels[naming.LabelClickHouseRoutable] = "false"
 	statefulSet.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 	statefulSet.Spec.Template.Spec.RestartPolicy = corev1.RestartPolicyAlways

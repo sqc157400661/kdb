@@ -18,7 +18,8 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	instanceSet := instance.Spec.InstanceSet
 	sts.Annotations = naming.Merge(
 		instance.Annotations,
-		instanceSet.Metadata.GetAnnotationsOrNil())
+		instanceSet.Metadata.GetAnnotationsOrNil(),
+		naming.PlatformScopeAnnotations(instance.Annotations))
 	labels := map[string]string{
 		naming.LabelInstanceSet: sts.Name,
 		naming.LabelInstance:    instance.Name,
@@ -29,6 +30,7 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	sts.Labels = naming.Merge(
 		instance.Labels,
 		instanceSet.Metadata.GetLabelsOrNil(),
+		naming.PlatformScopeLabels(instance.Labels),
 		labels)
 	sts.Spec.Selector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -39,10 +41,12 @@ func InstanceStatefulSetIntent(rc *context.InstanceContext, sts *appsv1.Stateful
 	sts.Spec.Template.Annotations = naming.Merge(
 		instance.Annotations,
 		instanceSet.Metadata.GetAnnotationsOrNil(),
+		naming.PlatformScopeAnnotations(instance.Annotations),
 	)
 	sts.Spec.Template.Labels = naming.Merge(
 		instance.Labels,
 		instanceSet.Metadata.GetLabelsOrNil(),
+		naming.PlatformScopeLabels(instance.Labels),
 		labels)
 
 	// Don't clutter the namespace with extra ControllerRevisions.

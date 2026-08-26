@@ -12,15 +12,53 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/internal/naming"
 )
 
 func TestDBRestoreCreatesOnlyNewInstanceAndWaitsForPrimary(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	source := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "kdb", Labels: map[string]string{"kdb.io/instance-id": "orders"}}, Spec: v1.KDBInstanceSpec{Engine: "postgresql", EngineVersion: "17", Leader: v1.HostInfo{PodName: "orders0-0"}, PostgreSQL: &v1.PostgreSQLSpec{Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "s3", S3Bucket: "backups"}}}}}
+	source := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{
+		Name: "orders", Namespace: "kdb",
+		Labels: map[string]string{
+			"kdb.io/instance-id":         "orders",
+			naming.LabelScopeTenant:      "default",
+			naming.LabelScopeProject:     "source",
+			naming.LabelScopeEnvironment: "prod",
+			naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-beijing"),
+			naming.LabelScopeInstance:    "orders",
+		},
+		Annotations: map[string]string{
+			naming.AnnotationRawTenant:      "default",
+			naming.AnnotationRawProject:     "source",
+			naming.AnnotationRawEnvironment: "prod",
+			naming.AnnotationRawRegion:      "volcengine/cn-beijing",
+			naming.AnnotationRawInstance:    "orders",
+			naming.AnnotationScopeRevision:  "16",
+			naming.AnnotationScopeHash:      "sha256:source",
+		},
+	}, Spec: v1.KDBInstanceSpec{Engine: "postgresql", EngineVersion: "17", Leader: v1.HostInfo{PodName: "orders0-0"}, PostgreSQL: &v1.PostgreSQLSpec{Backups: &v1.PostgreSQLBackupSpec{PGBackRest: &v1.PostgreSQLPGBackRestSpec{Enabled: true, RepoType: "s3", S3Bucket: "backups"}}}}}
 	backup := &v1.DBBackup{ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "kdb"}, Spec: v1.DBBackupSpec{OperationID: "b", InstanceRef: corev1.LocalObjectReference{Name: "orders"}, Type: "full"}, Status: v1.DBBackupStatus{Phase: v1.DBBackupPhaseSucceeded, Artifact: &v1.DBBackupArtifactStatus{BackupID: "20260715F"}}}
-	restore := &v1.DBRestore{ObjectMeta: metav1.ObjectMeta{Name: "restore", Namespace: "kdb"}, Spec: v1.DBRestoreSpec{OperationID: "r", BackupRef: corev1.LocalObjectReference{Name: "backup"}, Mode: "NewInstance", TargetInstanceName: "orders-restored", Target: v1.DBRestoreTarget{Type: "lsn", Value: "0/200"}}}
+	restore := &v1.DBRestore{ObjectMeta: metav1.ObjectMeta{
+		Name: "restore", Namespace: "kdb",
+		Labels: map[string]string{
+			naming.LabelScopeTenant:      "default",
+			naming.LabelScopeProject:     "target",
+			naming.LabelScopeEnvironment: "stage",
+			naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-shanghai"),
+			naming.LabelScopeInstance:    "orders-restored",
+		},
+		Annotations: map[string]string{
+			naming.AnnotationRawTenant:      "default",
+			naming.AnnotationRawProject:     "target",
+			naming.AnnotationRawEnvironment: "stage",
+			naming.AnnotationRawRegion:      "volcengine/cn-shanghai",
+			naming.AnnotationRawInstance:    "orders-restored",
+			naming.AnnotationScopeRevision:  "17",
+			naming.AnnotationScopeHash:      "sha256:target",
+		},
+	}, Spec: v1.DBRestoreSpec{OperationID: "r", BackupRef: corev1.LocalObjectReference{Name: "backup"}, Mode: "NewInstance", TargetInstanceName: "orders-restored", Target: v1.DBRestoreTarget{Type: "lsn", Value: "0/200"}}}
 	sourceCredential := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "orders-postgresql-credential", Namespace: "kdb"},
 		Data:       map[string][]byte{"postgres-password": []byte("test-only")},
@@ -42,6 +80,12 @@ func TestDBRestoreCreatesOnlyNewInstanceAndWaitsForPrimary(t *testing.T) {
 		target.Spec.PostgreSQL.CredentialSecretRef == nil || target.Spec.PostgreSQL.CredentialSecretRef.Name != "orders-restored-postgresql-credential" ||
 		target.Labels["kdb.io/instance-id"] != "orders-restored" {
 		t.Fatalf("target identity was not normalized: metadata=%#v spec=%#v", target.ObjectMeta, target.Spec)
+	}
+	if target.Labels[naming.LabelScopeProject] != "target" ||
+		target.Labels[naming.LabelScopeInstance] != "orders-restored" ||
+		target.Annotations[naming.AnnotationRawProject] != "target" ||
+		target.Annotations[naming.AnnotationScopeRevision] != "17" {
+		t.Fatalf("target scope identity was not inherited from DBRestore: metadata=%#v", target.ObjectMeta)
 	}
 	targetCredential := &corev1.Secret{}
 	if err := client.Get(context.Background(), types.NamespacedName{Namespace: "kdb", Name: "orders-restored-postgresql-credential"}, targetCredential); err != nil {

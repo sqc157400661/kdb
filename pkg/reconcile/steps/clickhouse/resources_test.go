@@ -40,6 +40,11 @@ func TestBuildStandaloneStatefulSet(t *testing.T) {
 	if sts.Spec.Template.Spec.Containers[0].Name != naming.ContainerDatabase {
 		t.Fatalf("first container should be database, got %s", sts.Spec.Template.Spec.Containers[0].Name)
 	}
+	if sts.Spec.Template.Labels[naming.LabelScopeProject] != "trade" ||
+		sts.Spec.Template.Labels[naming.LabelScopeRegion] != naming.KubernetesLabelValue("volcengine/cn-beijing") ||
+		sts.Spec.Template.Annotations[naming.AnnotationRawRegion] != "volcengine/cn-beijing" {
+		t.Fatalf("ClickHouse Pod template scope identity = labels:%#v annotations:%#v", sts.Spec.Template.Labels, sts.Spec.Template.Annotations)
+	}
 	if !containerMountsPath(sts.Spec.Template.Spec.Containers[0], clickHouseDataMountPath) {
 		t.Fatalf("database container should mount %s", clickHouseDataMountPath)
 	}
@@ -196,7 +201,24 @@ func TestResolveStandaloneSpecRejectsNonStandaloneTopology(t *testing.T) {
 
 func standaloneInstance() *v1.KDBInstance {
 	return &v1.KDBInstance{
-		ObjectMeta: metav1.ObjectMeta{Name: "analytics", Namespace: "kdb"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "analytics", Namespace: "kdb",
+			Labels: map[string]string{
+				naming.LabelScopeTenant:      "default",
+				naming.LabelScopeProject:     "trade",
+				naming.LabelScopeEnvironment: "prod",
+				naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-beijing"),
+				naming.LabelScopeInstance:    "analytics",
+			},
+			Annotations: map[string]string{
+				naming.AnnotationRawTenant:      "default",
+				naming.AnnotationRawProject:     "trade",
+				naming.AnnotationRawEnvironment: "prod",
+				naming.AnnotationRawRegion:      "volcengine/cn-beijing",
+				naming.AnnotationRawInstance:    "analytics",
+				naming.AnnotationScopeRevision:  "17",
+			},
+		},
 		Spec: v1.KDBInstanceSpec{
 			Engine:        naming.ClickHouseEngine,
 			EngineVersion: "25.8",
@@ -214,6 +236,10 @@ func standaloneInstance() *v1.KDBInstance {
 					Name: "ingest",
 					Role: v1.ClickHouseRoleIngest,
 					Instance: shared.InstanceSetSpec{
+						Metadata: &shared.Metadata{
+							Labels:      map[string]string{naming.LabelScopeProject: "forged"},
+							Annotations: map[string]string{naming.AnnotationRawRegion: "forged"},
+						},
 						Replicas: chTestInt32(1),
 						MainContainer: shared.ContainerSpec{
 							Image: "clickhouse:25.8",

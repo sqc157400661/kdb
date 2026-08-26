@@ -7,13 +7,21 @@ update_version: {{.UpdateVersion}}
 mysql_cnf_file: /kdbdata/etc/my.cnf
 init_users:
   - username: _monitor_user
-    password_file: {{.RootPasswordFile}}
+    password_file: {{.MonitorPasswordFile}}
     host: localhost
     privileges: [SELECT,PROCESS,REPLICATION CLIENT]
   - username: _monitor_user
-    password_file: {{.RootPasswordFile}}
+    password_file: {{.MonitorPasswordFile}}
     host: 127.0.0.1
     privileges: [SELECT,PROCESS,REPLICATION CLIENT]
+  - username: _monitor_user
+    password_file: {{.MonitorPasswordFile}}
+    host: '%'
+    privileges: [SELECT,PROCESS,REPLICATION CLIENT]
+  - username: _proxy_user
+    password_file: {{.ProxyPasswordFile}}
+    host: '%'
+    privileges: [USAGE]
   - username: {{.ReplUser}}
     password_file: {{.ReplPasswordFile}}
     host: '%'

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"github.com/sqc157400661/helper/kube"
 	"github.com/sqc157400661/util"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -87,9 +89,12 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 				return flow.Error(getCredentialErr, "get MySQL credential Secret err")
 			}
 			existingRootPassword, existingReplicationPassword := []byte(nil), []byte(nil)
+			existingMonitorPassword, existingProxyPassword := []byte(nil), []byte(nil)
 			if getCredentialErr == nil {
 				existingRootPassword = existingCredential.Data[naming.MySQLRootPasswordSecretKey]
 				existingReplicationPassword = existingCredential.Data[naming.MySQLReplicationPasswordSecretKey]
+				existingMonitorPassword = existingCredential.Data[naming.MySQLMonitorPasswordSecretKey]
+				existingProxyPassword = existingCredential.Data[naming.MySQLProxyPasswordSecretKey]
 			}
 			rootPassword, passwordErr := resolveMySQLRootPassword(rc.Context(), rc.Client(), instance, globalConfig.DB.RootPassword, existingRootPassword)
 			if passwordErr != nil {
@@ -99,14 +104,34 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			if passwordErr != nil {
 				return flow.Error(passwordErr, "resolve MySQL replication credential err")
 			}
+			monitorPassword, passwordErr := resolveMySQLCredentialValue("", existingMonitorPassword)
+			if passwordErr != nil {
+				return flow.Error(passwordErr, "resolve MySQL monitor credential err")
+			}
+			proxyPassword, passwordErr := resolveMySQLCredentialValue("", existingProxyPassword)
+			if passwordErr != nil {
+				return flow.Error(passwordErr, "resolve MySQL proxy credential err")
+			}
 			credentialSecret.Data[naming.MySQLRootPasswordSecretKey] = rootPassword
 			credentialSecret.Data[naming.MySQLReplicationPasswordSecretKey] = replicationPassword
+			credentialSecret.Data[naming.MySQLMonitorPasswordSecretKey] = monitorPassword
+			credentialSecret.Data[naming.MySQLProxyPasswordSecretKey] = proxyPassword
 			credentialSecret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
 			if err := errors.WithStack(rc.SetControllerReference(credentialSecret)); err != nil {
 				return flow.Error(err, "Set MySQL credential Secret reference err")
 			}
 			if err := errors.WithStack(rc.Apply(credentialSecret)); err != nil {
 				return flow.Error(err, "apply MySQL credential Secret err")
+			}
+			projectionUpdated, err := stageMySQLCredentialProjection(rc, instance)
+			if err != nil {
+				return flow.Error(err, "stage MySQL credential projection err")
+			}
+			if projectionUpdated {
+				// Existing StatefulSets use OnDelete. Publish the new Secret keys in
+				// their Pod templates before any ConfigMap starts referencing the
+				// corresponding files; the next reconcile can then roll Pods safely.
+				return flow.RetryAfter(2*time.Second, "mysql credential projection staged")
 			}
 			replications, err := resolveReplications(rc, instance, globalConfig.GetHostResolveMode(), globalConfig.DB.ReplUser, naming.MySQLReplicationPasswordPath)
 			if err != nil {
@@ -127,6 +152,8 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			templateData := map[string]any{
 				"RootUser":                       globalConfig.DB.RootUser,
 				"RootPasswordFile":               naming.MySQLRootPasswordPath,
+				"MonitorPasswordFile":            naming.MySQLMonitorPasswordPath,
+				"ProxyPasswordFile":              naming.MySQLProxyPasswordPath,
 				"ReplUser":                       globalConfig.DB.ReplUser,
 				"ReplPasswordFile":               naming.MySQLReplicationPasswordPath,
 				"CurrentVersion":                 naming.CurrentConfigVersion(instance),
@@ -177,6 +204,73 @@ func (s *InstanceStepManager) SetInstanceConfig() kube.BindFunc {
 			rc.SetInstanceConfigMap(instanceConfigMap)
 			return flow.Pass()
 		})
+}
+
+func stageMySQLCredentialProjection(rc *context.InstanceContext, instance *v1.KDBInstance) (bool, error) {
+	if rc == nil || instance == nil || instance.Spec.InstanceSet.Replicas == nil {
+		return false, nil
+	}
+	updated := false
+	for ordinal := 0; ordinal < int(*instance.Spec.InstanceSet.Replicas); ordinal++ {
+		sts := &appsv1.StatefulSet{}
+		key := client.ObjectKey{
+			Namespace: instance.Namespace,
+			Name:      naming.InstanceStatefulSetName(instance.Name, ordinal),
+		}
+		if err := rc.Client().Get(rc.Context(), key, sts); err != nil {
+			if apierrors.IsNotFound(err) {
+				// A new StatefulSet will be created from the complete desired Pod
+				// template later in this reconcile, so no compatibility pass is needed.
+				continue
+			}
+			return false, err
+		}
+		before := sts.DeepCopy()
+		if !ensureMySQLCredentialProjectionItems(sts, naming.MySQLCredentialSecret(instance).Name) {
+			continue
+		}
+		if err := rc.Client().Patch(rc.Context(), sts, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
+			return false, err
+		}
+		updated = true
+	}
+	return updated, nil
+}
+
+func ensureMySQLCredentialProjectionItems(sts *appsv1.StatefulSet, secretName string) bool {
+	if sts == nil || strings.TrimSpace(secretName) == "" {
+		return false
+	}
+	desired := []corev1.KeyToPath{
+		{Key: naming.MySQLMonitorPasswordSecretKey, Path: naming.MySQLMonitorPasswordProjectionPath},
+		{Key: naming.MySQLProxyPasswordSecretKey, Path: naming.MySQLProxyPasswordProjectionPath},
+	}
+	for volumeIndex := range sts.Spec.Template.Spec.Volumes {
+		projected := sts.Spec.Template.Spec.Volumes[volumeIndex].Projected
+		if projected == nil {
+			continue
+		}
+		for sourceIndex := range projected.Sources {
+			secret := projected.Sources[sourceIndex].Secret
+			if secret == nil || secret.Name != secretName {
+				continue
+			}
+			existing := make(map[string]struct{}, len(secret.Items))
+			for _, item := range secret.Items {
+				existing[item.Key] = struct{}{}
+			}
+			changed := false
+			for _, item := range desired {
+				if _, found := existing[item.Key]; found {
+					continue
+				}
+				secret.Items = append(secret.Items, item)
+				changed = true
+			}
+			return changed
+		}
+	}
+	return false
 }
 
 func resolveMySQLCredentialValue(configured string, existing []byte) ([]byte, error) {

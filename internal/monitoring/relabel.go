@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
+	"github.com/sqc157400661/kdb/internal/naming"
 )
 
 const (
@@ -24,6 +25,9 @@ func PodTargetRelabelings(instance *v1.KDBInstance) []interface{} {
 	cloudClusterID := ""
 	if instance.Labels != nil {
 		if value := instance.Labels[InstanceIDLabel]; value != "" {
+			instanceID = value
+		}
+		if value := instance.Labels[naming.LabelScopeInstance]; value != "" {
 			instanceID = value
 		}
 		cloudClusterID = instance.Labels[CloudClusterLabel]
@@ -54,6 +58,15 @@ func PodTargetRelabelings(instance *v1.KDBInstance) []interface{} {
 			},
 		)
 	}
+	for _, item := range platformScopeMetricLabels(instance) {
+		if item.target == "instance_id" {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"replacement": item.value,
+			"targetLabel": item.target,
+		})
+	}
 	return out
 }
 
@@ -72,6 +85,9 @@ func InstanceResourceRecordingRules(instance *v1.KDBInstance) []interface{} {
 		if value := instance.Labels[InstanceIDLabel]; value != "" {
 			instanceID = value
 		}
+		if value := instance.Labels[naming.LabelScopeInstance]; value != "" {
+			instanceID = value
+		}
 		cloudClusterID = instance.Labels[CloudClusterLabel]
 	}
 	labels := map[string]interface{}{
@@ -81,6 +97,9 @@ func InstanceResourceRecordingRules(instance *v1.KDBInstance) []interface{} {
 	if cloudClusterID != "" {
 		labels["cloud_cluster_id"] = cloudClusterID
 		labels["cell_id"] = cloudClusterID
+	}
+	for _, item := range platformScopeMetricLabels(instance) {
+		labels[item.target] = item.value
 	}
 	podPattern, volumePattern := instanceResourcePatterns(instance)
 	podMatcher := fmt.Sprintf(`namespace=%q,pod=~%q,container!=""`, instance.Namespace, podPattern)
@@ -104,6 +123,35 @@ func InstanceResourceRecordingRules(instance *v1.KDBInstance) []interface{} {
 			"labels": labels,
 		},
 	}
+}
+
+type platformScopeMetricLabel struct {
+	target string
+	value  string
+}
+
+func platformScopeMetricLabels(instance *v1.KDBInstance) []platformScopeMetricLabel {
+	if instance == nil {
+		return nil
+	}
+	values := naming.PlatformScopeLabels(instance.Labels)
+	keys := []struct {
+		source string
+		target string
+	}{
+		{naming.LabelScopeTenant, "tenant_id"},
+		{naming.LabelScopeProject, "project_id"},
+		{naming.LabelScopeEnvironment, "environment_id"},
+		{naming.LabelScopeRegion, "region_id"},
+		{naming.LabelScopeInstance, "instance_id"},
+	}
+	out := make([]platformScopeMetricLabel, 0, len(keys))
+	for _, key := range keys {
+		if value := values[key.source]; value != "" {
+			out = append(out, platformScopeMetricLabel{target: key.target, value: value})
+		}
+	}
+	return out
 }
 
 func instanceResourcePatterns(instance *v1.KDBInstance) (string, string) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -643,9 +644,10 @@ func rolloutOutdatedPod(rc *context.InstanceContext) (bool, error) {
 	}
 
 	desired := int(*instance.Spec.InstanceSet.Replicas)
+	namesToKeep := getNamesNeedToKeep(rc)
 	ready := 0
 	for _, item := range observedInstances.List {
-		if item != nil && len(item.Pods) == 1 && util.IsPodReady(item.Pods[0]) {
+		if item != nil && namesToKeep.Has(item.Name) && len(item.Pods) == 1 && util.IsPodReady(item.Pods[0]) {
 			ready++
 		}
 	}
@@ -654,8 +656,8 @@ func rolloutOutdatedPod(rc *context.InstanceContext) (bool, error) {
 	}
 
 	rollout := func(primary bool) (bool, error) {
-		for _, item := range observedInstances.List {
-			if item == nil || len(item.Pods) != 1 || naming.IsMasterPod(item.Pods[0]) != primary {
+		for _, item := range orderedObservedRunners(instance, observedInstances) {
+			if item == nil || !namesToKeep.Has(item.Name) || len(item.Pods) != 1 || naming.IsMasterPod(item.Pods[0]) != primary {
 				continue
 			}
 			matches, known := item.PodMatchesPodTemplate()
@@ -798,6 +800,9 @@ func preparePostgreSQLCredentialRotation(rc *context.InstanceContext) error {
 func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 	instance := rc.GetInstance()
 	observedInstances := rc.GetObservedRunner()
+	if instance == nil || observedInstances == nil || naming.InstanceSetSpec(instance).Replicas == nil {
+		return sets.NewString()
+	}
 	// want defines the number of replicas we want for each instance set
 	wantNums := *naming.InstanceSetSpec(instance).Replicas
 	namesToKeep := sets.NewString()
@@ -805,7 +810,10 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 		return stoppedInstanceStatefulSetNames(instance)
 	}
 	if wantNums > 0 {
-		for _, ins := range observedInstances.List {
+		for _, ins := range orderedObservedRunners(instance, observedInstances) {
+			if ins == nil {
+				continue
+			}
 			if len(ins.Pods) > 0 && naming.IsMasterPod(ins.Pods[0]) {
 				namesToKeep.Insert(ins.Name)
 			}
@@ -821,7 +829,10 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 				synchronousPods.Insert(member.Name)
 			}
 		}
-		for _, ins := range observedInstances.List {
+		for _, ins := range orderedObservedRunners(instance, observedInstances) {
+			if ins == nil {
+				continue
+			}
 			if namesToKeep.Len() >= int(wantNums) {
 				break
 			}
@@ -831,18 +842,50 @@ func getNamesNeedToKeep(rc *context.InstanceContext) sets.String {
 		}
 	}
 
-	for _, ins := range observedInstances.List {
+	for _, ins := range orderedObservedRunners(instance, observedInstances) {
+		if ins == nil {
+			continue
+		}
 		if len(ins.Pods) > 0 && !naming.IsMasterPod(ins.Pods[0]) && namesToKeep.Len() < int(wantNums) {
 			namesToKeep.Insert(ins.Name)
 		}
 	}
-	for _, ins := range observedInstances.List {
+	for _, ins := range orderedObservedRunners(instance, observedInstances) {
+		if ins == nil {
+			continue
+		}
 		if namesToKeep.Len() >= int(wantNums) {
 			break
 		}
 		namesToKeep.Insert(ins.Name)
 	}
 	return namesToKeep
+}
+
+// orderedObservedRunners makes member retention independent of informer list
+// order. Keeping the lowest ordinals means scale-in removes the highest
+// ordinal non-primary member, while the explicit primary preservation above
+// prevents a failover-created primary from being selected as the victim.
+func orderedObservedRunners(instance *v1.KDBInstance, observedInstances *observed.ObservedRunner) []*observed.SingleRunner {
+	if observedInstances == nil {
+		return nil
+	}
+	ordered := append([]*observed.SingleRunner(nil), observedInstances.List...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i] == nil {
+			return false
+		}
+		if ordered[j] == nil {
+			return true
+		}
+		left := naming.InstanceStsNum(instance, ordered[i].Name)
+		right := naming.InstanceStsNum(instance, ordered[j].Name)
+		if left != right {
+			return left < right
+		}
+		return ordered[i].Name < ordered[j].Name
+	})
+	return ordered
 }
 
 func stoppedInstanceStatefulSetNames(instance *v1.KDBInstance) sets.String {
@@ -887,10 +930,7 @@ func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
 				return flow.Pass()
 			}
 			for _, obj := range mysqlMonitoringObjects(instance) {
-				if err := errors.WithStack(rc.SetOwnerReference(obj)); err != nil {
-					return flow.Error(err, "set monitor owner ref err")
-				}
-				if err := errors.WithStack(rc.Apply(obj)); err != nil {
+				if err := errors.WithStack(ApplyMonitoringObject(rc, obj)); err != nil {
 					if isMonitoringCRDMissing(err) {
 						return flow.Pass()
 					}

@@ -47,6 +47,9 @@ const (
 	prometheusService               = "kdb-prometheus"
 	kubeletScrapeSecret             = "kdb-kubelet-scrape-config"
 	alertmanagerService             = "kdb-alertmanager"
+	alertRelayDeployment            = "kdb-alert-relay"
+	alertRelayService               = "kdb-alert-relay"
+	alertRelayStateClaim            = "kdb-alert-relay-state"
 	grafanaDeployment               = "kdb-grafana"
 )
 
@@ -68,6 +71,7 @@ type KDBMonitoringStackReconciler struct {
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;pods;secrets;serviceaccounts;services,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings;roles;rolebindings,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=alertmanagers;alertmanagerconfigs;podmonitors;probes;prometheuses;prometheusagents;prometheusrules;scrapeconfigs;servicemonitors;thanosrulers,verbs=create;delete;get;list;patch;update;watch
@@ -101,6 +105,11 @@ func (r *KDBMonitoringStackReconciler) Reconcile(ctx context.Context, request ct
 		return r.patchStatus(ctx, stack, v1.MonitoringStackPhaseFailed, false, nil, "", err.Error(), time.Minute)
 	}
 	rewriteMonitoringBundle(bundle, namespace)
+	if !monitoringRelayEnabled(stack) {
+		if err := removeDisabledMonitoringRelay(ctx, dynamicClient, namespace); err != nil {
+			return r.patchStatus(ctx, stack, v1.MonitoringStackPhaseProgressing, false, nil, "", err.Error(), 15*time.Second)
+		}
+	}
 	manifests := append([]map[string]any{monitoringNamespaceManifest(namespace)}, bundle...)
 	manifests = append(manifests, monitoringStackManifests(stack, namespace)...)
 	for _, manifest := range manifests {
@@ -110,7 +119,7 @@ func (r *KDBMonitoringStackReconciler) Reconcile(ctx context.Context, request ct
 		}
 	}
 
-	components := monitoringStackComponentStatuses(ctx, dynamicClient, clientset, namespace, monitoringOperatorVersion(stack))
+	components := monitoringStackComponentStatuses(ctx, dynamicClient, clientset, namespace, monitoringOperatorVersion(stack), monitoringRelayEnabled(stack))
 	ready := monitoringStackReady(components)
 	phase := v1.MonitoringStackPhaseProgressing
 	message := "waiting for monitoring stack rollout"
@@ -345,6 +354,14 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 	if len(remoteWrite) > 0 {
 		prometheusSpec["remoteWrite"] = remoteWrite
 	}
+	alertmanagerSpec := map[string]any{
+		"replicas":  alertReplicas,
+		"image":     defaultAlertmanagerImage,
+		"resources": monitoringResourceRequirements(stack.Spec.Alertmanager.Resources, map[string]string{"cpu": "50m", "memory": "64Mi"}, map[string]string{"cpu": "500m", "memory": "256Mi"}),
+	}
+	if monitoringRelayEnabled(stack) {
+		alertmanagerSpec["alertmanagerConfigSelector"] = map[string]any{"matchLabels": map[string]any{"kdb.io/alert-relay": "enabled"}}
+	}
 	manifests := []map[string]any{
 		monitoringNamespaceManifest(namespace),
 		kubeletScrapeSecretManifest(namespace, monitoringStackLabels("prometheus")),
@@ -400,14 +417,13 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 				"namespace": namespace,
 				"labels":    monitoringStackLabels("alertmanager"),
 			},
-			"spec": map[string]any{
-				"replicas":  alertReplicas,
-				"image":     defaultAlertmanagerImage,
-				"resources": monitoringResourceRequirements(stack.Spec.Alertmanager.Resources, map[string]string{"cpu": "50m", "memory": "64Mi"}, map[string]string{"cpu": "500m", "memory": "256Mi"}),
-			},
+			"spec": alertmanagerSpec,
 		},
 		monitoringServiceManifest(namespace, prometheusService, "prometheus", map[string]string{"prometheus": defaultMonitoringStackName}, 9090),
 		monitoringServiceManifest(namespace, alertmanagerService, "alertmanager", map[string]string{"alertmanager": defaultMonitoringStackName}, 9093),
+	}
+	if monitoringRelayEnabled(stack) {
+		manifests = append(manifests, monitoringAlertRelayManifests(stack, namespace)...)
 	}
 	if grafanaEnabled {
 		manifests = append(manifests, grafanaManifests(namespace, grafanaImage, stack.Spec.Grafana.Resources)...)
@@ -418,6 +434,21 @@ func monitoringStackManifests(stack *v1.KDBMonitoringStack, namespace string) []
 func validateMonitoringStackSpec(stack *v1.KDBMonitoringStack) error {
 	if stack == nil {
 		return fmt.Errorf("monitoring stack is required")
+	}
+	if monitoringRelayEnabled(stack) {
+		if strings.TrimSpace(stack.Spec.Relay.Image) == "" || strings.TrimSpace(stack.Spec.Relay.CellID) == "" || len(stack.Spec.Relay.CellID) > 80 || strings.ContainsAny(stack.Spec.Relay.CellID, "/\x00\r\n") {
+			return fmt.Errorf("relay image and safe cellId are required when Relay is enabled")
+		}
+		if stack.Spec.Relay.CenterEndpointSecretRef == nil || stack.Spec.Relay.TLSSecretRef == nil ||
+			!validMonitoringSecretSelector(stack.Spec.Relay.CenterEndpointSecretRef) || !validMonitoringSecretName(stack.Spec.Relay.TLSSecretRef.Name) {
+			return fmt.Errorf("relay center endpoint and TLS Secret references are invalid")
+		}
+		if stack.Spec.Relay.TLSSecretRef.Namespace != "" && stack.Spec.Relay.TLSSecretRef.Namespace != monitoringStackNamespace(stack) {
+			return fmt.Errorf("relay TLS Secret must be in the monitoring namespace")
+		}
+		if stack.Spec.Relay.FallbackSecretRef != nil && !validMonitoringSecretSelector(stack.Spec.Relay.FallbackSecretRef) {
+			return fmt.Errorf("relay fallback Secret reference is invalid")
+		}
 	}
 	labels := stack.Spec.Prometheus.ExternalLabels
 	if len(labels) > 32 {
@@ -453,6 +484,149 @@ func validateMonitoringStackSpec(stack *v1.KDBMonitoringStack) error {
 		if len(ref.Name) == 0 || len(ref.Name) > 253 || !monitoringSecretNamePattern.MatchString(ref.Name) ||
 			len(ref.Key) == 0 || len(ref.Key) > 253 || !monitoringSecretKeyPattern.MatchString(ref.Key) {
 			return fmt.Errorf("prometheus remote-write authorization SecretKeyRef is invalid")
+		}
+	}
+	return nil
+}
+
+func monitoringRelayEnabled(stack *v1.KDBMonitoringStack) bool {
+	return stack != nil && stack.Spec.Relay.Enabled != nil && *stack.Spec.Relay.Enabled
+}
+
+func validMonitoringSecretName(name string) bool {
+	return len(name) > 0 && len(name) <= 253 && monitoringSecretNamePattern.MatchString(name)
+}
+
+func validMonitoringSecretSelector(ref *corev1.SecretKeySelector) bool {
+	return ref != nil && validMonitoringSecretName(ref.Name) && len(ref.Key) > 0 && len(ref.Key) <= 253 && monitoringSecretKeyPattern.MatchString(ref.Key)
+}
+
+func monitoringAlertRelayManifests(stack *v1.KDBMonitoringStack, namespace string) []map[string]any {
+	labels := map[string]any{"app.kubernetes.io/name": alertRelayDeployment, "app.kubernetes.io/managed-by": "kdb-operator"}
+	selector := map[string]any{"app.kubernetes.io/name": alertRelayDeployment}
+	relayID := namespace + "/" + stack.Name
+	manifests := []map[string]any{
+		{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]any{"name": alertRelayDeployment, "namespace": namespace, "labels": labels},
+			"spec": map[string]any{
+				"replicas": int64(1), "selector": map[string]any{"matchLabels": selector},
+				"template": map[string]any{
+					"metadata": map[string]any{"labels": selector},
+					"spec": map[string]any{
+						"containers": []map[string]any{{
+							"name": "alert-relay", "image": stack.Spec.Relay.Image, "imagePullPolicy": "IfNotPresent",
+							"command": []string{"/kdb/bin/alert-relay"}, "args": []string{"--listen=:8080"},
+							"ports": []map[string]any{{"name": "web", "containerPort": int64(8080)}},
+							"env": []map[string]any{
+								{"name": "KDB_ALERT_CELL_ID", "value": stack.Spec.Relay.CellID},
+								{"name": "KDB_ALERT_RELAY_ID", "value": relayID},
+								{"name": "KDB_ALERT_RELAY_VERSION", "value": stack.Spec.Relay.Image},
+								{"name": "KDB_ALERT_CENTER_ENDPOINT", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": stack.Spec.Relay.CenterEndpointSecretRef.Name, "key": stack.Spec.Relay.CenterEndpointSecretRef.Key}}},
+							},
+							"volumeMounts": []map[string]any{
+								{"name": "relay-tls", "mountPath": "/var/run/kdb-alert-relay/tls", "readOnly": true},
+								{"name": "relay-state", "mountPath": "/var/lib/kdb-alert-relay"},
+							},
+							"resources":       monitoringResourceRequirements(stack.Spec.Relay.Resources, map[string]string{"cpu": "20m", "memory": "32Mi"}, map[string]string{"cpu": "200m", "memory": "128Mi"}),
+							"readinessProbe":  map[string]any{"httpGet": map[string]any{"path": "/healthz", "port": "web"}, "periodSeconds": int64(10)},
+							"securityContext": map[string]any{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "runAsNonRoot": true},
+						}},
+						"volumes": []map[string]any{
+							{"name": "relay-tls", "secret": map[string]any{"secretName": stack.Spec.Relay.TLSSecretRef.Name}},
+							{"name": "relay-state", "emptyDir": map[string]any{}},
+						},
+					},
+				},
+			},
+		},
+		{
+			"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]any{"name": alertRelayService, "namespace": namespace, "labels": labels},
+			"spec":     map[string]any{"selector": selector, "ports": []map[string]any{{"name": "web", "port": int64(8080), "targetPort": "web"}}},
+		},
+		{
+			"apiVersion": "monitoring.coreos.com/v1alpha1", "kind": "AlertmanagerConfig",
+			"metadata": map[string]any{"name": alertRelayService, "namespace": namespace, "labels": map[string]any{"kdb.io/alert-relay": "enabled", "app.kubernetes.io/managed-by": "kdb-operator"}},
+			"spec": map[string]any{
+				"route":     map[string]any{"receiver": alertRelayService, "groupBy": []string{"alertname", "kdb_policy_id"}, "groupWait": "0s", "groupInterval": "30s", "repeatInterval": "5m"},
+				"receivers": []map[string]any{{"name": alertRelayService, "webhookConfigs": []map[string]any{{"url": "http://" + alertRelayService + "." + namespace + ".svc:8080/v1/alertmanager", "sendResolved": true}}}},
+			},
+		},
+		{
+			"apiVersion": "monitoring.coreos.com/v1", "kind": "ServiceMonitor",
+			"metadata": map[string]any{"name": alertRelayService, "namespace": namespace, "labels": monitoringStackLabels("prometheus")},
+			"spec":     map[string]any{"selector": map[string]any{"matchLabels": labels}, "endpoints": []map[string]any{{"port": "web", "path": "/metrics", "interval": "30s"}}},
+		},
+		{
+			"apiVersion": "monitoring.coreos.com/v1", "kind": "PrometheusRule",
+			"metadata": map[string]any{"name": alertRelayService, "namespace": namespace, "labels": monitoringStackLabels("prometheus")},
+			"spec": map[string]any{"groups": []map[string]any{{"name": "kdb-alert-platform", "rules": []map[string]any{
+				{"alert": "AlertIngestionStalled", "expr": "absent(up{service=\"kdb-alert-relay\"} == 1)", "for": "5m", "labels": map[string]any{"severity": "P0"}},
+				{"alert": "AlertRelayFallbackActive", "expr": "kdb_alert_relay_fallback_active > 0", "for": "1m", "labels": map[string]any{"severity": "P0"}},
+			}}}},
+		},
+		{
+			"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+			"metadata": map[string]any{"name": alertRelayService, "namespace": namespace, "labels": labels},
+			"spec": map[string]any{
+				"podSelector": map[string]any{"matchLabels": selector}, "policyTypes": []string{"Ingress", "Egress"},
+				"ingress": []map[string]any{
+					{"from": []map[string]any{{"podSelector": map[string]any{"matchLabels": map[string]any{"alertmanager": defaultMonitoringStackName}}}}, "ports": []map[string]any{{"protocol": "TCP", "port": int64(8080)}}},
+					{"from": []map[string]any{{"podSelector": map[string]any{"matchLabels": map[string]any{"prometheus": defaultMonitoringStackName}}}}, "ports": []map[string]any{{"protocol": "TCP", "port": int64(8080)}}},
+				},
+				"egress": []map[string]any{
+					{"ports": []map[string]any{{"protocol": "TCP", "port": int64(443)}}},
+					{"ports": []map[string]any{{"protocol": "UDP", "port": int64(53)}, {"protocol": "TCP", "port": int64(53)}}},
+				},
+			},
+		},
+	}
+	if stack.Spec.Relay.FallbackSecretRef != nil {
+		deploymentSpec := manifests[0]["spec"].(map[string]any)
+		podSpec := deploymentSpec["template"].(map[string]any)["spec"].(map[string]any)
+		container := podSpec["containers"].([]map[string]any)[0]
+		container["env"] = append(container["env"].([]map[string]any), map[string]any{"name": "KDB_ALERT_FALLBACK_CONFIG", "value": "/var/run/kdb-alert-relay/fallback/fallback.json"})
+		container["volumeMounts"] = append(container["volumeMounts"].([]map[string]any), map[string]any{"name": "relay-fallback", "mountPath": "/var/run/kdb-alert-relay/fallback", "readOnly": true})
+		podSpec["volumes"] = append(podSpec["volumes"].([]map[string]any), map[string]any{"name": "relay-fallback", "secret": map[string]any{"secretName": stack.Spec.Relay.FallbackSecretRef.Name, "items": []map[string]any{{"key": stack.Spec.Relay.FallbackSecretRef.Key, "path": "fallback.json"}}}})
+		volumes := podSpec["volumes"].([]map[string]any)
+		volumes[1] = map[string]any{"name": "relay-state", "persistentVolumeClaim": map[string]any{"claimName": alertRelayStateClaim}}
+		podSpec["volumes"] = volumes
+		manifests = append(manifests, map[string]any{
+			"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+			"metadata": map[string]any{"name": alertRelayStateClaim, "namespace": namespace, "labels": labels},
+			"spec":     map[string]any{"accessModes": []string{"ReadWriteOnce"}, "resources": map[string]any{"requests": map[string]any{"storage": "1Gi"}}},
+		})
+	}
+	return manifests
+}
+
+func removeDisabledMonitoringRelay(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
+	for _, identity := range []struct{ kind, name string }{
+		{kind: "PrometheusRule", name: alertRelayService},
+		{kind: "ServiceMonitor", name: alertRelayService},
+		{kind: "AlertmanagerConfig", name: alertRelayService},
+		{kind: "NetworkPolicy", name: alertRelayService},
+		{kind: "Service", name: alertRelayService},
+		{kind: "Deployment", name: alertRelayDeployment},
+	} {
+		gvr, err := monitoringGVRForKind(identity.kind)
+		if err != nil {
+			return err
+		}
+		resource := dynamicClient.Resource(gvr).Namespace(namespace)
+		object, err := resource.Get(ctx, identity.name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if object.GetLabels()["app.kubernetes.io/managed-by"] != "kdb-operator" {
+			return fmt.Errorf("refusing to delete unmanaged %s %s/%s", identity.kind, namespace, identity.name)
+		}
+		if err := resource.Delete(ctx, identity.name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			return err
 		}
 	}
 	return nil
@@ -572,7 +746,7 @@ func grafanaManifests(namespace, image string, resources corev1.ResourceRequirem
 	}
 }
 
-func monitoringStackComponentStatuses(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, version string) []v1.MonitoringStackComponentStatus {
+func monitoringStackComponentStatuses(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, version string, relayEnabled bool) []v1.MonitoringStackComponentStatus {
 	requiredCRDs := []string{
 		"prometheuses.monitoring.coreos.com",
 		"prometheusagents.monitoring.coreos.com",
@@ -611,6 +785,9 @@ func monitoringStackComponentStatuses(ctx context.Context, dynamicClient dynamic
 		monitoringPodSelectorStatus(ctx, clientset, namespace, "alertmanager=kdb", "Alertmanager", "Alertmanager"),
 		monitoringDeploymentStatus(ctx, clientset, namespace, grafanaDeployment, "Grafana"),
 	)
+	if relayEnabled {
+		out = append(out, monitoringDeploymentStatus(ctx, clientset, namespace, alertRelayDeployment, "Alert Relay"))
+	}
 	return out
 }
 
@@ -666,6 +843,7 @@ func monitoringStackReady(components []v1.MonitoringStackComponentStatus) bool {
 		"Prometheus Operator": true,
 		"Prometheus":          true,
 		"Alertmanager":        true,
+		"Alert Relay":         true,
 	}
 	for _, component := range components {
 		if component.Kind == "CustomResourceDefinition" && !component.Ready {
@@ -710,10 +888,14 @@ func monitoringGVRForKind(kind string) (schema.GroupVersionResource, error) {
 		return schema.GroupVersionResource{Version: "v1", Resource: "secrets"}, nil
 	case "Service":
 		return schema.GroupVersionResource{Version: "v1", Resource: "services"}, nil
+	case "PersistentVolumeClaim":
+		return schema.GroupVersionResource{Version: "v1", Resource: "persistentvolumeclaims"}, nil
 	case "ServiceAccount":
 		return schema.GroupVersionResource{Version: "v1", Resource: "serviceaccounts"}, nil
 	case "Deployment":
 		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, nil
+	case "NetworkPolicy":
+		return schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}, nil
 	case "StatefulSet":
 		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}, nil
 	case "Role":

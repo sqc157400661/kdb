@@ -97,6 +97,12 @@ func mysqlAllowlistNetworkPolicy(instance *v1.KDBInstance, cidrs []string) *netw
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				// Replication, MGR and Pod-local sidecars must continue to communicate.
 				{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{naming.LabelInstance: instance.Name}}}}},
+				// The instance-owned ProxySQL Deployment is outside the database Pod
+				// selector and needs explicit access to the MySQL backend only.
+				{
+					From:  []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{naming.LabelProxyOwner: instance.Name}}}},
+					Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: mysqlPolicyPort(int(databasePort))}},
+				},
 				{
 					From:  []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kdb.io/mysql-client": "allowed"}}}},
 					Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: mysqlPolicyPort(int(databasePort))}},

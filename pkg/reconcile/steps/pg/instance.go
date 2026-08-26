@@ -53,10 +53,7 @@ func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
 			return flow.Pass()
 		}
 		for _, obj := range postgreSQLMonitoringObjects(instance) {
-			if err := rc.SetOwnerReference(obj); err != nil {
-				return flow.Error(err, "set PostgreSQL monitor owner ref err")
-			}
-			if err := rc.Apply(obj); err != nil {
+			if err := steps.ApplyMonitoringObject(rc, obj); err != nil {
 				if strings.Contains(err.Error(), "no matches for kind") || strings.Contains(err.Error(), "the server could not find the requested resource") {
 					return flow.Pass()
 				}
@@ -340,9 +337,11 @@ func reconcilePostgreSQLBootstrapParameters(rc *context.InstanceContext, instanc
 	backoff := int32(0)
 	fsGroup := int64(102)
 	fsGroupChangePolicy := corev1.FSGroupChangeOnRootMismatch
-	job = &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: instance.Namespace, Labels: map[string]string{naming.LabelInstance: instance.Name}}, Spec: batchv1.JobSpec{
+	jobLabels := naming.Merge(instance.Labels, map[string]string{naming.LabelInstance: instance.Name})
+	jobAnnotations := naming.Merge(instance.Annotations)
+	job = &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: instance.Namespace, Labels: jobLabels, Annotations: jobAnnotations}, Spec: batchv1.JobSpec{
 		BackoffLimit: &backoff,
-		Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{naming.LabelInstance: instance.Name}}, Spec: corev1.PodSpec{
+		Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: jobLabels, Annotations: jobAnnotations}, Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			SecurityContext: &corev1.PodSecurityContext{
 				FSGroup:             &fsGroup,

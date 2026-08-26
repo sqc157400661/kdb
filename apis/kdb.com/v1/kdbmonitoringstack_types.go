@@ -65,6 +65,41 @@ type MonitoringStackAlertmanagerSpec struct {
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
+type MonitoringStackAlertRelaySpec struct {
+	// Enabled controls the managed Alertmanager -> Relay -> center path. It is
+	// false by default so existing monitoring stacks remain unchanged.
+	// +optional
+	// +kubebuilder:default=false
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Image is the immutable image containing /kdb/bin/alert-relay.
+	// Required when Enabled is true.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// CellID is the cloud-cluster identity encoded in the Relay mTLS certificate.
+	// +optional
+	CellID string `json:"cellId,omitempty"`
+
+	// CenterEndpointSecretRef points to the center base URL. Raw endpoints and
+	// credentials are not embedded in the CR or generated manifests.
+	// +optional
+	CenterEndpointSecretRef *corev1.SecretKeySelector `json:"centerEndpointSecretRef,omitempty"`
+
+	// TLSSecretRef points to a Secret containing tls.crt, tls.key and ca.crt.
+	// +optional
+	TLSSecretRef *corev1.SecretReference `json:"tlsSecretRef,omitempty"`
+
+	// FallbackSecretRef is reserved for the gated T10 Metric P0 fallback path.
+	// T05 mounts or reads no fallback credential.
+	// +optional
+	FallbackSecretRef *corev1.SecretKeySelector `json:"fallbackSecretRef,omitempty"`
+
+	// Resources controls Relay container requests and limits.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
 type MonitoringStackGrafanaSpec struct {
 	// Enabled controls whether the operator deploys the built-in Grafana.
 	// +optional
@@ -105,6 +140,10 @@ type KDBMonitoringStackSpec struct {
 	// Alertmanager configures the built-in Alertmanager CR.
 	// +optional
 	Alertmanager MonitoringStackAlertmanagerSpec `json:"alertmanager,omitempty"`
+
+	// Relay configures the optional Cell Alert Relay.
+	// +optional
+	Relay MonitoringStackAlertRelaySpec `json:"relay,omitempty"`
 
 	// Grafana configures the built-in Grafana deployment.
 	// +optional

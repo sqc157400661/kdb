@@ -73,8 +73,12 @@ test:
 
 ##@ Build ---------
 
+.PHONY: alert-relay
+alert-relay:
+	$(GO) -o hack/docker/alert-relay cmd/alert-relay/main.go
+
 .PHONY: operator
-operator:
+operator: alert-relay
 	$(GO) -o hack/docker/manager cmd/operator/main.go
 
 .PHONY: operator-docker

@@ -11,6 +11,7 @@ import (
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/topology"
 	"github.com/sqc157400661/util"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +40,8 @@ func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 	data := map[string]any{
 		"RootUser":                       "root",
 		"RootPasswordFile":               naming.MySQLRootPasswordPath,
+		"MonitorPasswordFile":            naming.MySQLMonitorPasswordPath,
+		"ProxyPasswordFile":              naming.MySQLProxyPasswordPath,
 		"ReplUser":                       "repl",
 		"ReplPasswordFile":               naming.MySQLReplicationPasswordPath,
 		"CurrentVersion":                 "1",
@@ -68,6 +71,12 @@ func TestInstanceConfigTemplateIncludesParameterReportPaths(t *testing.T) {
 		t.Fatalf("render instance config template: %v", err)
 	}
 	for _, want := range []string{
+		"username: _monitor_user",
+		"password_file: " + naming.MySQLMonitorPasswordPath,
+		"host: '%'",
+		"username: _proxy_user",
+		"password_file: " + naming.MySQLProxyPasswordPath,
+		"privileges: [USAGE]",
 		"parameter_report:",
 		"enabled: true",
 		"host_file: " + naming.ParameterReportHostPath,
@@ -129,6 +138,42 @@ func TestResolveMySQLCredentialValueGeneratesAndPreservesFallback(t *testing.T) 
 	}
 	if string(configured) != " configured-secret " {
 		t.Fatalf("configured credential = %q", configured)
+	}
+}
+
+func TestEnsureMySQLCredentialProjectionItemsStagesNewKeys(t *testing.T) {
+	sts := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{
+		Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{{
+				VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{{Secret: &corev1.SecretProjection{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "mysql-demo-mysql-credential"},
+						Items:                []corev1.KeyToPath{{Key: naming.MySQLRootPasswordSecretKey, Path: naming.MySQLRootPasswordProjectionPath}},
+					}}},
+				}},
+			}},
+		}},
+	}}
+
+	if !ensureMySQLCredentialProjectionItems(sts, "mysql-demo-mysql-credential") {
+		t.Fatal("new credential projection keys were not staged")
+	}
+	secret := sts.Spec.Template.Spec.Volumes[0].Projected.Sources[0].Secret
+	want := map[string]string{
+		naming.MySQLRootPasswordSecretKey:    naming.MySQLRootPasswordProjectionPath,
+		naming.MySQLMonitorPasswordSecretKey: naming.MySQLMonitorPasswordProjectionPath,
+		naming.MySQLProxyPasswordSecretKey:   naming.MySQLProxyPasswordProjectionPath,
+	}
+	if len(secret.Items) != len(want) {
+		t.Fatalf("projection items = %#v", secret.Items)
+	}
+	for _, item := range secret.Items {
+		if want[item.Key] != item.Path {
+			t.Fatalf("projection item = %#v", item)
+		}
+	}
+	if ensureMySQLCredentialProjectionItems(sts, "mysql-demo-mysql-credential") {
+		t.Fatal("idempotent projection check reported another update")
 	}
 }
 

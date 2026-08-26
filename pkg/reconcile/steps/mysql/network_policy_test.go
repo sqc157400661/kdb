@@ -36,11 +36,19 @@ func TestMySQLAllowlistNetworkPolicyKeepsControlPlaneAndEnforcesCIDRs(t *testing
 	if policy.Name != "orders-mysql-allowlist" || policy.Namespace != "database" {
 		t.Fatalf("unexpected policy identity: %s/%s", policy.Namespace, policy.Name)
 	}
-	if len(policy.Spec.Ingress) != 6 {
-		t.Fatalf("ingress rules = %d, want 6", len(policy.Spec.Ingress))
+	if len(policy.Spec.Ingress) != 7 {
+		t.Fatalf("ingress rules = %d, want 7", len(policy.Spec.Ingress))
+	}
+	proxyRule := policy.Spec.Ingress[1]
+	if len(proxyRule.From) != 1 || proxyRule.From[0].PodSelector == nil ||
+		proxyRule.From[0].PodSelector.MatchLabels["kdb.com/proxy-owner"] != "orders" {
+		t.Fatalf("ProxySQL ingress selector = %#v", proxyRule.From)
+	}
+	if len(proxyRule.Ports) != 1 || proxyRule.Ports[0].Port == nil || proxyRule.Ports[0].Port.IntValue() != 3307 {
+		t.Fatalf("ProxySQL ingress ports = %#v, want MySQL port 3307", proxyRule.Ports)
 	}
 	for index, wantCIDR := range []string{"10.20.0.0/16", "192.0.2.8/32"} {
-		rule := policy.Spec.Ingress[4+index]
+		rule := policy.Spec.Ingress[5+index]
 		if len(rule.From) != 1 || rule.From[0].IPBlock == nil || rule.From[0].IPBlock.CIDR != wantCIDR {
 			t.Fatalf("cidr rule %d = %#v, want %s", index, rule, wantCIDR)
 		}

@@ -2,6 +2,7 @@ package steps
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -721,6 +722,12 @@ func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.Inst
 	if !isEmptyResourceRequirements(exporter.Resources) {
 		monitor.Resources = exporter.Resources
 	}
+	if postgreSQLMajorAtLeast(instance, 17) && !containsString(monitor.Args, "--no-collector.stat_bgwriter") {
+		// postgres_exporter v0.15 reads columns removed from pg_stat_bgwriter
+		// in PostgreSQL 17. Keep the remaining default and extended collectors
+		// healthy until the offline image baseline can be upgraded.
+		monitor.Args = append(monitor.Args, "--no-collector.stat_bgwriter")
+	}
 	monitor.Env = append([]corev1.EnvVar{
 		{Name: "DATA_SOURCE_URI", Value: fmt.Sprintf("localhost:%d/postgres?sslmode=verify-ca&sslrootcert=/etc/postgresql/tls/ca.crt&sslcert=/etc/postgresql/tls/client.crt&sslkey=/etc/postgresql/tls/client.key", postgresPort(instance))},
 		postgresCredentialEnv(instance, "DATA_SOURCE_USER", naming.PostgreSQLMonitoringUsernameKey),
@@ -749,6 +756,24 @@ func postgresExporterContainer(instance *v1.KDBInstance, instanceSet shared.Inst
 		SecurityContext: exporterSecurityContext,
 		VolumeMounts:    postgresExporterVolumeMounts(mounts),
 	}
+}
+
+func postgreSQLMajorAtLeast(instance *v1.KDBInstance, minimum int) bool {
+	if instance == nil {
+		return false
+	}
+	majorText := strings.TrimSpace(strings.SplitN(instance.Spec.EngineVersion, ".", 2)[0])
+	major, err := strconv.Atoi(majorText)
+	return err == nil && major >= minimum
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func postgresPort(instance *v1.KDBInstance) int32 {

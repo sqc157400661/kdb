@@ -5,6 +5,9 @@ metadata:
   creationTimestamp: null
   name: manager-role
 rules:
+# AlertPolicyBundle uses a managed ConfigMap bridge; the KDBInstance controller
+# watches, validates and status-patches that ConfigMap before updating the
+# existing PrometheusRule in place.
 - apiGroups:
   - ""
   resources:
@@ -400,6 +403,7 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
+  # KDBMonitoringStack owns the Relay ingress/egress boundary when Relay is enabled.
   - networkpolicies
   verbs:
   - create

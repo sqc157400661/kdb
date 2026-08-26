@@ -75,29 +75,51 @@ func ensureInstanceProxySQLConfigMap(rc *context.InstanceContext) error {
 
 func ensureInstanceProxySQLSecret(rc *context.InstanceContext) error {
 	instance := rc.GetInstance()
-	secret := &corev1.Secret{ObjectMeta: naming.ProxySQLInstanceSecret(instance)}
-	err := rc.Client().Get(rc.Context(), client.ObjectKeyFromObject(secret), secret)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
+	existing := &corev1.Secret{ObjectMeta: naming.ProxySQLInstanceSecret(instance)}
+	if err := rc.Client().Get(rc.Context(), client.ObjectKeyFromObject(existing), existing); err != nil && !apierrors.IsNotFound(err) {
 		return errors.WithStack(err)
 	}
-	secret = &corev1.Secret{ObjectMeta: naming.ProxySQLInstanceSecret(instance)}
+	mysqlCredential := &corev1.Secret{ObjectMeta: naming.MySQLCredentialSecret(instance)}
+	if err := rc.Client().Get(rc.Context(), client.ObjectKeyFromObject(mysqlCredential), mysqlCredential); err != nil {
+		return errors.Wrap(err, "read MySQL credential Secret for ProxySQL monitor")
+	}
+	data, err := desiredInstanceProxySQLSecretData(existing.Data, mysqlCredential.Data)
+	if err != nil {
+		return err
+	}
+	secret := &corev1.Secret{ObjectMeta: naming.ProxySQLInstanceSecret(instance)}
 	secret.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
 	secret.Type = corev1.SecretTypeOpaque
 	secret.Labels = naming.Merge(instance.Labels, naming.ProxySQLInstanceLabels(instance))
 	secret.Annotations = naming.Merge(instance.Annotations)
-	secret.Data = map[string][]byte{
-		"admin-username":   []byte("admin"),
-		"admin-password":   []byte(randomInstanceProxyHex(24)),
-		"monitor-username": []byte("monitor"),
-		"monitor-password": []byte(randomInstanceProxyHex(24)),
-	}
+	secret.Data = data
 	if err := errors.WithStack(rc.SetControllerReference(secret)); err != nil {
 		return err
 	}
-	return errors.WithStack(rc.Client().Create(rc.Context(), secret))
+	return errors.WithStack(rc.Apply(secret))
+}
+
+func desiredInstanceProxySQLSecretData(existing, mysqlCredential map[string][]byte) (map[string][]byte, error) {
+	monitorPassword := mysqlCredential[naming.MySQLMonitorPasswordSecretKey]
+	if len(monitorPassword) == 0 {
+		return nil, fmt.Errorf("MySQL credential Secret has no %q", naming.MySQLMonitorPasswordSecretKey)
+	}
+	data := make(map[string][]byte, len(existing)+4)
+	for key, value := range existing {
+		data[key] = append([]byte(nil), value...)
+	}
+	if len(data["admin-username"]) == 0 {
+		data["admin-username"] = []byte("admin")
+	}
+	if len(data["admin-password"]) == 0 {
+		data["admin-password"] = []byte(randomInstanceProxyHex(24))
+	}
+	// The monitor account is reconciled by the MySQL sidecar with a dedicated
+	// credential. Both values remain in Secrets; no password is rendered to the
+	// desired ConfigMap or JobX payload.
+	data["monitor-username"] = []byte("_monitor_user")
+	data["monitor-password"] = append([]byte(nil), monitorPassword...)
+	return data, nil
 }
 
 func ensureInstanceProxySQLDeployment(rc *context.InstanceContext, configVersion string) error {

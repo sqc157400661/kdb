@@ -136,7 +136,7 @@ func TestMySQLExporterContainer(t *testing.T) {
 	password := env["MYSQL_EXPORTER_PASSWORD"]
 	if password.ValueFrom == nil || password.ValueFrom.SecretKeyRef == nil ||
 		password.ValueFrom.SecretKeyRef.Name != instance.Name+"-mysql-credential" ||
-		password.ValueFrom.SecretKeyRef.Key != naming.MySQLRootPasswordSecretKey {
+		password.ValueFrom.SecretKeyRef.Key != naming.MySQLMonitorPasswordSecretKey {
 		t.Fatalf("exporter password is not sourced from the operator credential Secret: %#v", password)
 	}
 	if len(container.VolumeMounts) != 1 || container.VolumeMounts[0].Name != "tmp" {

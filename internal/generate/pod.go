@@ -83,6 +83,8 @@ func instanceVolsIntent(rc *context.InstanceContext, sts *appsv1.StatefulSet) (m
 				Items: []corev1.KeyToPath{
 					{Key: naming.MySQLRootPasswordSecretKey, Path: naming.MySQLRootPasswordProjectionPath},
 					{Key: naming.MySQLReplicationPasswordSecretKey, Path: naming.MySQLReplicationPasswordProjectionPath},
+					{Key: naming.MySQLMonitorPasswordSecretKey, Path: naming.MySQLMonitorPasswordProjectionPath},
+					{Key: naming.MySQLProxyPasswordSecretKey, Path: naming.MySQLProxyPasswordProjectionPath},
 					{Key: "ca.crt", Path: naming.MySQLCredentialDir + "/ca.crt"},
 					{Key: "tls.crt", Path: naming.MySQLCredentialDir + "/tls.crt"},
 					{Key: "tls.key", Path: naming.MySQLCredentialDir + "/tls.key", Mode: func() *int32 { value := int32(0o400); return &value }()},
@@ -372,7 +374,7 @@ func normalizeMySQLExporterEnv(instance *v1.KDBInstance, env []corev1.EnvVar) []
 			LocalObjectReference: corev1.LocalObjectReference{
 				Name: naming.MySQLCredentialSecret(instance).Name,
 			},
-			Key: naming.MySQLRootPasswordSecretKey,
+			Key: naming.MySQLMonitorPasswordSecretKey,
 		}},
 	}
 	for index := len(env) - 1; index >= 0; index-- {

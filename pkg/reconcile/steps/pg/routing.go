@@ -354,10 +354,15 @@ func reconcilePostgreSQLPgBouncer(rc *reconcilecontext.InstanceContext, instance
 		image = "edoburu/pgbouncer:1.23.1-p3"
 	}
 	labels := map[string]string{naming.LabelInstance: instance.Name, "app.kubernetes.io/component": "pgbouncer"}
-	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: instance.Namespace}}
+	resourceLabels := naming.Merge(instance.Labels, labels)
+	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: name, Namespace: instance.Namespace,
+		Labels: resourceLabels, Annotations: naming.Merge(instance.Annotations),
+	}}
 	deployment.Spec.Replicas = &replicas
 	deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-	deployment.Spec.Template.ObjectMeta.Labels = labels
+	deployment.Spec.Template.ObjectMeta.Labels = resourceLabels
+	deployment.Spec.Template.ObjectMeta.Annotations = naming.Merge(instance.Annotations)
 	deployment.Spec.Template.Spec.Containers = []corev1.Container{{
 		Name: "pgbouncer", Image: image, Resources: spec.Resources,
 		Ports: []corev1.ContainerPort{{Name: "pgbouncer", ContainerPort: port}},
@@ -374,7 +379,7 @@ func reconcilePostgreSQLPgBouncer(rc *reconcilecontext.InstanceContext, instance
 	if err := rc.Apply(deployment); err != nil {
 		return err
 	}
-	service := newPostgreSQLService(instance, name, "", labels, port)
+	service := newPostgreSQLService(instance, name, "", resourceLabels, port)
 	service.Spec.Selector = labels
 	service.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Service"))
 	if err := rc.SetControllerReference(service); err != nil {

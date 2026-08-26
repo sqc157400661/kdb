@@ -6,6 +6,7 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/config"
+	internalmonitoring "github.com/sqc157400661/kdb/internal/monitoring"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/internal/topology"
 	reconcile_context "github.com/sqc157400661/kdb/pkg/reconcile/context"
@@ -191,6 +192,7 @@ func (r *KDBInstanceReconciler) SetupWithManager(mgr manager.Manager) error {
 		Watches(&source.Kind{Type: &corev1.Secret{}}, handler.EnqueueRequestsFromMapFunc(mysqlRestoreCredentialRequests(mgr.GetClient()))).
 		Watches(&source.Kind{Type: &coordinationv1.Lease{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
 		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, handler.EnqueueRequestsFromMapFunc(postgreSQLDCSRequests)).
+		Watches(&source.Kind{Type: &corev1.ConfigMap{}}, handler.EnqueueRequestsFromMapFunc(alertPolicyBundleRequests(mgr.GetClient()))).
 		Complete(r)
 }
 
@@ -245,4 +247,30 @@ func postgreSQLDCSRequests(object client.Object) []reconcile.Request {
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: object.GetNamespace(), Name: scope}}}
+}
+
+// alertPolicyBundleRequests maps a managed bundle to exactly one matching
+// namespace-local KDBInstance. The initial ConfigMap has no owner reference,
+// so Owns(ConfigMap) alone cannot trigger the first validation reconcile.
+func alertPolicyBundleRequests(cache client.Client) handler.MapFunc {
+	return func(object client.Object) []reconcile.Request {
+		if cache == nil || object == nil || object.GetLabels()[internalmonitoring.AlertPolicyManagedLabel] != "true" {
+			return nil
+		}
+		instanceID := strings.TrimSpace(object.GetLabels()[internalmonitoring.AlertPolicyInstanceLabel])
+		if instanceID == "" || object.GetName() != internalmonitoring.AlertPolicyConfigMapName(instanceID) {
+			return nil
+		}
+		instances := &v1.KDBInstanceList{}
+		if err := cache.List(context.Background(), instances, client.InNamespace(object.GetNamespace())); err != nil {
+			return nil
+		}
+		for index := range instances.Items {
+			instance := &instances.Items[index]
+			if internalmonitoring.PlatformInstanceID(instance) == instanceID {
+				return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(instance)}}
+			}
+		}
+		return nil
+	}
 }

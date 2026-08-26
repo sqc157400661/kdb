@@ -84,8 +84,8 @@ func buildKeeperStatefulSet(instance *v1.KDBInstance, instanceSet shared.Instanc
 		Name:      naming.ClickHouseKeeperStatefulSetName(instance.Name, member.Index),
 	}}
 	sts.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("StatefulSet"))
-	sts.Labels = naming.Merge(instance.Labels, instanceSet.Metadata.GetLabelsOrNil(), labels)
-	sts.Annotations = naming.Merge(instance.Annotations, instanceSet.Metadata.GetAnnotationsOrNil())
+	sts.Labels = naming.Merge(instance.Labels, instanceSet.Metadata.GetLabelsOrNil(), naming.PlatformScopeLabels(instance.Labels), labels)
+	sts.Annotations = naming.Merge(instance.Annotations, instanceSet.Metadata.GetAnnotationsOrNil(), naming.PlatformScopeAnnotations(instance.Annotations))
 	sts.Spec.Replicas = replicas
 	sts.Spec.ServiceName = naming.ClickHouseKeeperHeadlessServiceName(instance.Name)
 	sts.Spec.RevisionHistoryLimit = util.Int32(0)
@@ -95,8 +95,8 @@ func buildKeeperStatefulSet(instance *v1.KDBInstance, instanceSet shared.Instanc
 		WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 	}
 	sts.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-	sts.Spec.Template.Labels = naming.Merge(instance.Labels, instanceSet.Metadata.GetLabelsOrNil(), labels)
-	sts.Spec.Template.Annotations = naming.Merge(instance.Annotations, instanceSet.Metadata.GetAnnotationsOrNil())
+	sts.Spec.Template.Labels = naming.Merge(instance.Labels, instanceSet.Metadata.GetLabelsOrNil(), naming.PlatformScopeLabels(instance.Labels), labels)
+	sts.Spec.Template.Annotations = naming.Merge(instance.Annotations, instanceSet.Metadata.GetAnnotationsOrNil(), naming.PlatformScopeAnnotations(instance.Annotations))
 	if sts.Spec.Template.Annotations == nil {
 		sts.Spec.Template.Annotations = map[string]string{}
 	}

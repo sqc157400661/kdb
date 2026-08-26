@@ -264,17 +264,28 @@ func postgresqlAvailableForCurrentGeneration(target *v1.KDBInstance) bool {
 
 func restoredTargetInstance(source *v1.KDBInstance, backup *v1.DBBackup, restore *v1.DBRestore) *v1.KDBInstance {
 	targetName := restore.Spec.TargetInstanceName
-	labels := copyStringMap(source.Labels)
+	labels := naming.Merge(source.Labels, naming.PlatformScopeLabels(restore.Labels))
 	labels["kdb.com/restored-from"] = backup.Name
-	for _, key := range []string{"app.kubernetes.io/name", "kdb.io/instance-id"} {
+	for _, key := range []string{"app.kubernetes.io/name", "kdb.io/instance-id", naming.LabelScopeInstance} {
 		if _, exists := labels[key]; exists {
-			labels[key] = targetName
+			if value := restore.Labels[key]; value != "" {
+				labels[key] = value
+			} else {
+				labels[key] = naming.KubernetesLabelValue(targetName)
+			}
 		}
 	}
 	if _, exists := labels["kdb.io/operation-id"]; exists {
 		labels["kdb.io/operation-id"] = restore.Spec.OperationID
 	}
-	annotations := copyStringMap(source.Annotations)
+	annotations := naming.Merge(source.Annotations, naming.PlatformScopeAnnotations(restore.Annotations))
+	if _, exists := annotations[naming.AnnotationRawInstance]; exists {
+		if value := restore.Annotations[naming.AnnotationRawInstance]; value != "" {
+			annotations[naming.AnnotationRawInstance] = value
+		} else {
+			annotations[naming.AnnotationRawInstance] = targetName
+		}
+	}
 	annotations[restoreOperationAnnotation] = restore.Spec.OperationID
 
 	spec := source.DeepCopy().Spec
@@ -282,9 +293,17 @@ func restoredTargetInstance(source *v1.KDBInstance, backup *v1.DBBackup, restore
 	running := false
 	spec.Shutdown = &running
 	if spec.InstanceSet.Metadata != nil {
-		for _, key := range []string{"app.kubernetes.io/name", "kdb.io/instance-id"} {
+		spec.InstanceSet.Metadata.Labels = naming.Merge(
+			spec.InstanceSet.Metadata.Labels,
+			naming.PlatformScopeLabels(labels),
+		)
+		spec.InstanceSet.Metadata.Annotations = naming.Merge(
+			spec.InstanceSet.Metadata.Annotations,
+			naming.PlatformScopeAnnotations(annotations),
+		)
+		for _, key := range []string{"app.kubernetes.io/name", "kdb.io/instance-id", naming.LabelScopeInstance} {
 			if _, exists := spec.InstanceSet.Metadata.Labels[key]; exists {
-				spec.InstanceSet.Metadata.Labels[key] = targetName
+				spec.InstanceSet.Metadata.Labels[key] = labels[key]
 			}
 		}
 	}
@@ -324,14 +343,6 @@ func localRepositoryPVCForBackup(backup *v1.DBBackup) (string, error) {
 		return "", fmt.Errorf("backup %s executor pod %q has no StatefulSet ordinal", backup.Name, executorPod)
 	}
 	return executorPod[:separator] + "-kdb-data", nil
-}
-
-func copyStringMap(source map[string]string) map[string]string {
-	target := make(map[string]string, len(source)+1)
-	for key, value := range source {
-		target[key] = value
-	}
-	return target
 }
 
 func postgresRestoreTargetTime(value string) string {

@@ -8,6 +8,7 @@ import (
 	"github.com/sqc157400661/helper/kube"
 	v1 "github.com/sqc157400661/kdb/apis/kdb.com/v1"
 	"github.com/sqc157400661/kdb/apis/shared"
+	"github.com/sqc157400661/kdb/internal/generate"
 	"github.com/sqc157400661/kdb/internal/naming"
 	reconcilecontext "github.com/sqc157400661/kdb/pkg/reconcile/context"
 	appsv1 "k8s.io/api/apps/v1"
@@ -24,10 +25,27 @@ func TestPostgreSQLPodUsesOnlyKDBHAManagementSidecar(t *testing.T) {
 	replicas := int32(1)
 	port := int32(5432)
 	instance := &v1.KDBInstance{
-		ObjectMeta: metav1.ObjectMeta{Name: "demo-pg", Namespace: "kdb"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-pg", Namespace: "kdb",
+			Labels: map[string]string{
+				naming.LabelScopeTenant:      "default",
+				naming.LabelScopeProject:     "trade",
+				naming.LabelScopeEnvironment: "prod",
+				naming.LabelScopeRegion:      naming.KubernetesLabelValue("volcengine/cn-beijing"),
+				naming.LabelScopeInstance:    "demo-pg",
+			},
+			Annotations: map[string]string{
+				naming.AnnotationRawRegion:     "volcengine/cn-beijing",
+				naming.AnnotationScopeRevision: "17",
+			},
+		},
 		Spec: v1.KDBInstanceSpec{
 			Engine: naming.PostgresEngine, EngineVersion: "17", Port: &port,
 			InstanceSet: shared.InstanceSetSpec{
+				Metadata: &shared.Metadata{
+					Labels:      map[string]string{naming.LabelScopeProject: "forged"},
+					Annotations: map[string]string{naming.AnnotationRawRegion: "forged"},
+				},
 				Replicas:         &replicas,
 				MainContainer:    shared.ContainerSpec{Image: "postgresql17:test"},
 				SidecarContainer: shared.ContainerSpec{Image: "postgresql-sidecar:test", Command: []string{"kdb-ha"}, Args: []string{"/etc/patroni/patroni.yaml"}},
@@ -37,7 +55,13 @@ func TestPostgreSQLPodUsesOnlyKDBHAManagementSidecar(t *testing.T) {
 	}
 	rc := newPostgreSQLPodTestContext(t, instance)
 	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: instance.Name, Namespace: instance.Namespace}}
+	generate.InstanceStatefulSetIntent(rc, statefulSet)
 	postgresPodIntent(rc, statefulSet)
+	if statefulSet.Spec.Template.Labels[naming.LabelScopeProject] != "trade" ||
+		statefulSet.Spec.Template.Labels[naming.LabelScopeRegion] != naming.KubernetesLabelValue("volcengine/cn-beijing") ||
+		statefulSet.Spec.Template.Annotations[naming.AnnotationRawRegion] != "volcengine/cn-beijing" {
+		t.Fatalf("PostgreSQL Pod template scope identity = labels:%#v annotations:%#v", statefulSet.Spec.Template.Labels, statefulSet.Spec.Template.Annotations)
+	}
 
 	managementCount := 0
 	var database, kdbHA *corev1.Container
@@ -138,6 +162,9 @@ func TestPostgreSQLExporterReceivesTLSAndExtendedQueryConfig(t *testing.T) {
 	if !hasEnv(exporter.Env, "PG_EXPORTER_EXTEND_QUERY_PATH") || !hasEnv(exporter.Env, "DATA_SOURCE_URI") {
 		t.Fatalf("exporter collection environment is incomplete: %#v", exporter.Env)
 	}
+	if !containsString(exporter.Args, "--no-collector.stat_bgwriter") {
+		t.Fatalf("PostgreSQL 17 exporter must disable the incompatible stat_bgwriter collector: %#v", exporter.Args)
+	}
 	for _, env := range exporter.Env {
 		if env.Name != "DATA_SOURCE_URI" {
 			continue
@@ -147,6 +174,28 @@ func TestPostgreSQLExporterReceivesTLSAndExtendedQueryConfig(t *testing.T) {
 		}
 		if strings.Contains(env.Value, "sslcert=/etc/postgresql/tls/tls.crt") || strings.Contains(env.Value, "sslkey=/etc/postgresql/tls/tls.key") {
 			t.Fatalf("exporter must not use the server certificate: %q", env.Value)
+		}
+	}
+}
+
+func TestPostgreSQL16ExporterKeepsCompatibleStatBGWriterCollector(t *testing.T) {
+	replicas, port := int32(1), int32(5432)
+	instance := &v1.KDBInstance{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "kdb"}, Spec: v1.KDBInstanceSpec{
+		Engine: naming.PostgresEngine, EngineVersion: "16", Port: &port,
+		InstanceSet: shared.InstanceSetSpec{
+			Replicas:         &replicas,
+			MainContainer:    shared.ContainerSpec{Image: "postgresql16:test"},
+			SidecarContainer: shared.ContainerSpec{Image: "kdb-ha:test"},
+			MonitorContainer: shared.ContainerSpec{Image: "postgres-exporter:test"},
+		},
+		PostgreSQL: &v1.PostgreSQLSpec{Exporter: &v1.PostgreSQLExporterSpec{Enabled: true}},
+	}}
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: instance.Name, Namespace: instance.Namespace}}
+	postgresPodIntent(newPostgreSQLPodTestContext(t, instance), statefulSet)
+	for i := range statefulSet.Spec.Template.Spec.Containers {
+		exporter := &statefulSet.Spec.Template.Spec.Containers[i]
+		if exporter.Name == naming.ContainerPostgreSQLExporter && containsString(exporter.Args, "--no-collector.stat_bgwriter") {
+			t.Fatalf("PostgreSQL 16 must retain the compatible stat_bgwriter collector: %#v", exporter.Args)
 		}
 	}
 }

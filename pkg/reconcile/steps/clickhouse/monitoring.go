@@ -9,6 +9,7 @@ import (
 	internalmonitoring "github.com/sqc157400661/kdb/internal/monitoring"
 	"github.com/sqc157400661/kdb/internal/naming"
 	"github.com/sqc157400661/kdb/pkg/reconcile/context"
+	"github.com/sqc157400661/kdb/pkg/reconcile/steps"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -25,10 +26,7 @@ func (s *InstanceStepManager) SetMonitor() kube.BindFunc {
 		}
 		instance := rc.GetInstance()
 		for _, obj := range clickHouseMonitoringObjects(instance) {
-			if err := rc.SetOwnerReference(obj); err != nil {
-				return flow.Error(err, "set ClickHouse monitor owner ref err")
-			}
-			if err := rc.Apply(obj); err != nil {
+			if err := steps.ApplyMonitoringObject(rc, obj); err != nil {
 				if strings.Contains(err.Error(), "no matches for kind") || strings.Contains(err.Error(), "the server could not find the requested resource") {
 					return flow.Pass()
 				}

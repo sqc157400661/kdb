@@ -13,10 +13,16 @@ const (
 	MySQLCredentialDir                     = "mysql-secret"
 	MySQLRootPasswordSecretKey             = "root-password"
 	MySQLReplicationPasswordSecretKey      = "replication-password"
+	MySQLMonitorPasswordSecretKey          = "monitor-password"
+	MySQLProxyPasswordSecretKey            = "proxy-password"
 	MySQLRootPasswordPath                  = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLRootPasswordSecretKey
 	MySQLReplicationPasswordPath           = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLReplicationPasswordSecretKey
+	MySQLMonitorPasswordPath               = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLMonitorPasswordSecretKey
+	MySQLProxyPasswordPath                 = ConfigMountPath + "/" + MySQLCredentialDir + "/" + MySQLProxyPasswordSecretKey
 	MySQLRootPasswordProjectionPath        = MySQLCredentialDir + "/" + MySQLRootPasswordSecretKey
 	MySQLReplicationPasswordProjectionPath = MySQLCredentialDir + "/" + MySQLReplicationPasswordSecretKey
+	MySQLMonitorPasswordProjectionPath     = MySQLCredentialDir + "/" + MySQLMonitorPasswordSecretKey
+	MySQLProxyPasswordProjectionPath       = MySQLCredentialDir + "/" + MySQLProxyPasswordSecretKey
 )
 
 const (
