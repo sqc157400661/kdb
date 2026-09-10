@@ -351,7 +351,7 @@ func reconcilePostgreSQLPgBouncer(rc *reconcilecontext.InstanceContext, instance
 	}
 	image := spec.Image
 	if image == "" {
-		image = "edoburu/pgbouncer:1.23.1-p3"
+		image = "edoburu/pgbouncer:v1.23.1-p3"
 	}
 	labels := map[string]string{naming.LabelInstance: instance.Name, "app.kubernetes.io/component": "pgbouncer"}
 	resourceLabels := naming.Merge(instance.Labels, labels)
